@@ -1,0 +1,7 @@
+Django==4.2.7
+# Django REST framework is a powerful and flexible toolkit for building Web APIs.
+djangorestframework==3.14.0
+# Psycopg is the most popular PostgreSQL database adapter for the Python programming language.
+psycopg2-binary==2.9.7
+# Decouple helps you to organize your settings so that you can change parameters without having to redeploy your app.
+python-decouple==3.8
