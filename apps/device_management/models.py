@@ -33,11 +33,24 @@ class Device(models.Model):
     )
 
      # Certificate information
-    certificate_serial = models.BigIntegerField(
+    """
+    SQLite couldn't nadle the BigIntegerField well, so we comment it out for now and 
+    replaced it with CharField to store serial number as hex string.
+    Once PostgreSQL is used, we can switch back to BigIntegerField.
+    """
+    # certificate_serial = models.BigIntegerField(
+    #     unique=True,
+    #     null=True,
+    #     blank=True,
+    #     help_text="X.509 certificate serial number"
+    # )
+
+    certificate_serial = models.CharField(
+        max_length=40,  # Hex representation of serial number
         unique=True,
         null=True,
         blank=True,
-        help_text="X.509 certificate serial number"
+        help_text="X.509 certificate serial number (hex)"
     )
     
     certificate_expiry = models.DateTimeField(
