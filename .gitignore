@@ -13,6 +13,7 @@ __pycache__/
 *.log
 db.sqlite3
 db.sqlite3-journal
+*.sqlite3
 
 # Certificate Authority - NEVER COMMIT THESE
 ca/
