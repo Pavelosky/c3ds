@@ -121,3 +121,8 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Certificate Authority Configuration
+CA_DIR = BASE_DIR / 'ca'
+CA_PRIVATE_KEY_PATH = CA_DIR / 'ca_private_key.pem'
+CA_CERTIFICATE_PATH = CA_DIR / 'ca_certificate.pem'

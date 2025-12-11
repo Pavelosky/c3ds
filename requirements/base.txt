@@ -5,3 +5,4 @@ djangorestframework==3.14.0
 psycopg==3.3.1
 # Decouple helps you to organize your settings so that you can change parameters without having to redeploy your app.
 python-decouple==3.8
+cryptography==41.0.7

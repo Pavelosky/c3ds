@@ -1,0 +1,31 @@
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Django
+*.log
+db.sqlite3
+db.sqlite3-journal
+
+# Certificate Authority - NEVER COMMIT THESE
+ca/
+*.pem
+*.key
+*.crt
+*.csr
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
