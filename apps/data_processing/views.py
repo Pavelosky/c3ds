@@ -12,6 +12,8 @@ from cryptography.exceptions import InvalidSignature
 from django.conf import settings
 from datetime import datetime
 import pytz
+from .models import DeviceMessage
+from dateutil import parser as date_parser
 
 from apps.device_management.models import Device, DeviceStatus
 
@@ -148,26 +150,70 @@ class DeviceMessageView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Code below was copied from https://www.geeksforgeeks.org/python/get-user-ip-address-in-django/
+        # Extract client IP address
+        # START OF COPIED CODE
+        def get_client_ip(request):
+            ip_address = request.META.get('HTTP_X_FORWARDED_FOR')
+            if ip_address:
+                ip_address = ip_address.split(',')[0]
+            else:
+                ip_address = request.META.get('REMOTE_ADDR')
+            return ip_address
+        # END OF COPIED CODE
+
+        client_ip = get_client_ip(request)
+
+        # Extract timestamp from message data
+        message_timestamp = message_data.get('timestamp')
+        if message_timestamp:
+            try:
+                parsed_timestamp = date_parser.isoparse(message_timestamp)
+            except Exception as e:
+                parsed_timestamp = timezone.now()
+        else:
+            parsed_timestamp = timezone.now()
+
+        #Extract certificate serial number
+        cert_serial_number = hex(device_cert.serial_number)[2:]
+        
         # TODO: Store message in database
         # For now, just log it
         print(f"Message received from device {device.name} ({device.id})")
         print(f"Message data: {message_data}")
+
+        # Save message to database
+        saved_successfully = False
+
+        # Try to save the message
+        try:
+            DeviceMessage.objects.create(
+                device=device,
+                message_type=message_data.get('message_type', 'unknown'),
+                timestamp=parsed_timestamp,
+                data=message_data.get('data', {}),
+                ip_address=client_ip,
+                certificate_serial=cert_serial_number
+            )
+            saved_successfully = True
+        except Exception as e:
+            print(f'error: Failed to store message: {str(e)}')
         
         # Update device status to ACTIVE if it was PENDING or INACTIVE
         if device.status in [DeviceStatus.PENDING, DeviceStatus.INACTIVE]:
             device.status = DeviceStatus.ACTIVE
             device.save()
         
-        # Return success response
-        return Response(
-            {
-                'status': 'success',
-                'message': 'Message received and authenticated',
-                'device_id': str(device.id),
-                'timestamp': timezone.now().isoformat()
-            },
-            status=status.HTTP_200_OK
-        )
+        response_data = {
+            'status': 'success',
+            'saved': saved_successfully,
+            'device_id': device.id,
+            'timestamp': timezone.now().isoformat()
+        }
 
-
-        pass
+        if saved_successfully:
+            response_data['message'] = 'Message stored successfully.'
+        else:
+            response_data['message'] = 'Failed to store message.'
+        
+        return Response(response_data, status=status.HTTP_200_OK)
