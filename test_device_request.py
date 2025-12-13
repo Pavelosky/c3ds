@@ -12,11 +12,11 @@ DEVICE_KEY_FILE = CERT_PATH / "Sensor device 1_private_key.pem"
 
 # Sample message
 message_data = {
-    "message_type": "heartbeat",
-    "timestamp": "2024-12-11T10:30:00Z",
+    "message_type": "info",
+    "timestamp": "2024-12-13T22:30:00Z",
     "data": {
         "status": "online",
-        "battery": 85
+        "battery": 76
     }
 }
 
