@@ -38,10 +38,14 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
+    # Third party apps
+    'rest_framework', 
+
     # custom apps
     'apps.core',
     'apps.device_management',
     'apps.data_processing',
+    'apps.dashboard',
 ]
 
 MIDDLEWARE = [
