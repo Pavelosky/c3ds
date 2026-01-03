@@ -33,3 +33,4 @@ ca/
 Thumbs.db
 config/__pycache__/urls.cpython-313.pyc
 config/db.sqlite3
+

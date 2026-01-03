@@ -6,17 +6,22 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography import x509
 
 # Configuration
-CERT_PATH = Path(r"C:\Users\pawel\Downloads\Sensor device 1_certificate_bundle")
-DEVICE_CERT_FILE = CERT_PATH / "Sensor device 1_certificate.pem"
-DEVICE_KEY_FILE = CERT_PATH / "Sensor device 1_private_key.pem"
+CERT_PATH = Path(r"C:\Users\pawel\OneDrive\Documenten\BSc CS UoL\level 6\FP\feature_prototype_certificate_bundle")
+DEVICE_CERT_FILE = CERT_PATH / "feature_prototype_certificate.pem"
+DEVICE_KEY_FILE = CERT_PATH / "feature_prototype_private_key.pem"
 
 # Sample message
 message_data = {
-    "message_type": "info",
-    "timestamp": "2024-12-13T22:30:00Z",
+    "message_type": "presentation",
+    "timestamp": "2024-12-16T22:30:00Z",
     "data": {
         "status": "online",
-        "battery": 76
+        "battery": 76,
+        "temperature": 22.5,
+        "location": {
+            "latitude": 51.5074,
+            "longitude": -0.1278
+        }
     }
 }
 

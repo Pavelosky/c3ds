@@ -32,7 +32,9 @@ def generate_device_certificate(device):
         public_exponent=65537,
         key_size=2048,  # Smaller than CA (4096) but still secure
     )
-
+    # Code below was coppied from https://cryptography.io/en/latest/x509/tutorial/#creating-a-certificate-signing-request-csr
+    # with some small adjustments
+    # START OF COPIED CODE
     # Create device certificate subject
     subject = x509.Name([
         x509.NameAttribute(NameOID.COUNTRY_NAME, u"EU"),
@@ -69,17 +71,19 @@ def generate_device_certificate(device):
         format=serialization.PrivateFormat.TraditionalOpenSSL,
         encryption_algorithm=serialization.NoEncryption()
     ).decode('utf-8')
+    # END OF COPIED CODE
 
     # Get expiry date from certificate
     expiry_date = device_cert.not_valid_after
     
-    """
-    This is replaced due to the change in models.py caused by SQLite limitations
-    Needs to be reverted when PostgreSQL is used.
-    """
+
+    # This is replaced with two lines below because the change in models.py caused by SQLite limitations
+    # Needs to be reverted when PostgreSQL is used.
+    ### START OF SQLITE WORKAROUND ###
     # return cert_pem, private_key_pem, serial_number, expiry_date
 
     # Convert serial number to hex string for storage
     serial_hex = format(serial_number, 'x')
     
     return cert_pem, private_key_pem, serial_hex, expiry_date
+    ### END OF SQLITE WORKAROUND ###
