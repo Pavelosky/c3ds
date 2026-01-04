@@ -5,6 +5,7 @@ from cryptography.x509.oid import NameOID
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
+import pytz
 
 def generate_device_certificate(device):
     """
@@ -73,8 +74,8 @@ def generate_device_certificate(device):
     ).decode('utf-8')
     # END OF COPIED CODE
 
-    # Get expiry date from certificate
-    expiry_date = device_cert.not_valid_after
+    # Get expiry date from certificate and make it timezone-aware
+    expiry_date = device_cert.not_valid_after.replace(tzinfo=pytz.UTC)
     
 
     # This is replaced with two lines below because the change in models.py caused by SQLite limitations
