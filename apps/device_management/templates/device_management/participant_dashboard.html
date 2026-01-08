@@ -28,7 +28,7 @@
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Your Devices ({{ devices.count }})</h5>
-                <button class="btn btn-primary btn-sm" disabled>Add New Device</button>
+                <a href="{% url 'participant:add_device' %}" class="btn btn-primary btn-sm">Add New Device</a>
             </div>
             <div class="card-body">
                 {% if devices %}
@@ -37,9 +37,9 @@
                             <thead>
                                 <tr>
                                     <th>Name</th>
+                                    <th>Type</th>
+                                    <th>Location</th>
                                     <th>Status</th>
-                                    <th>Certificate Serial</th>
-                                    <th>Certificate Expiry</th>
                                     <th>Created</th>
                                     <th>Actions</th>
                                 </tr>
@@ -47,7 +47,20 @@
                             <tbody>
                                 {% for device in devices %}
                                 <tr>
-                                    <td>{{ device.name }}</td>
+                                    <td>
+                                        <strong>{{ device.name }}</strong>
+                                        {% if device.description %}
+                                            <br><small class="text-muted">{{ device.description|truncatewords:10 }}</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ device.device_type|default:"—" }}</td>
+                                    <td>
+                                        {% if device.latitude and device.longitude %}
+                                            <small>{{ device.latitude }}, {{ device.longitude }}</small>
+                                        {% else %}
+                                            <span class="text-muted">Not set</span>
+                                        {% endif %}
+                                    </td>
                                     <td>
                                         <span class="badge
                                             {% if device.status == 'ACTIVE' %}bg-success
@@ -57,11 +70,16 @@
                                             {{ device.get_status_display }}
                                         </span>
                                     </td>
-                                    <td>{{ device.certificate_serial|default:"Not generated" }}</td>
-                                    <td>{{ device.certificate_expiry|date:"Y-m-d H:i"|default:"N/A" }}</td>
                                     <td>{{ device.created_at|date:"Y-m-d H:i" }}</td>
                                     <td>
-                                        <button class="btn btn-sm btn-outline-primary" disabled>View</button>
+                                        {% if device.status != 'REVOKED' %}
+                                            <form method="post" action="{% url 'participant:remove_device' device.id %}" style="display: inline;" onsubmit="return confirm('Are you sure you want to remove device \'{{ device.name }}\'? This will revoke the device and it will no longer be able to send messages.');">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                                            </form>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Revoked</span>
+                                        {% endif %}
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -71,7 +89,7 @@
                 {% else %}
                     <div class="text-center py-5">
                         <p class="text-muted">You haven't added any devices yet.</p>
-                        <button class="btn btn-primary" disabled>Add Your First Device</button>
+                        <a href="{% url 'participant:add_device' %}" class="btn btn-primary">Add Your First Device</a>
                     </div>
                 {% endif %}
             </div>
