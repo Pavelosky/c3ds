@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Device, DeviceStatus
+from .models import Device, DeviceStatus, DeviceType
 from django.contrib import messages
 from django.http import HttpResponse
 from .utils import generate_device_certificate
@@ -78,6 +78,12 @@ def generate_certificate_action(modeladmin, request, queryset):
     return response
 
 generate_certificate_action.short_description = "Generate certificates for selected devices"
+
+
+@admin.register(DeviceType)
+class DeviceTypeAdmin(admin.ModelAdmin):
+    list_display = ('name',)
+    search_fields = ('name',)
 
 
 @admin.register(Device)
