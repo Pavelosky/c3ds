@@ -11,6 +11,25 @@ class DeviceStatus(models.TextChoices):
     EXPIRED = 'EXPIRED', 'Expired'      #the device's validity period has expired
     INACTIVE = 'INACTIVE', 'Inactive'   #the device is allowed but inactive and not currently in use
 
+class DeviceType(models.Model):
+    """
+    Device type model for categorizing IoT devices.
+    Admin can manage available device types from Django admin panel.
+    """
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        help_text="Type of device (e.g., 'Raspberry Pi', 'ESP8266')"
+    )
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = "Device Type"
+        verbose_name_plural = "Device Types"
+
+    def __str__(self):
+        return self.name
+
 class Device(models.Model):
     # Primary identifier
     id = models.UUIDField(
@@ -24,7 +43,40 @@ class Device(models.Model):
         max_length=255,
         help_text="Friendly name for the device (e.g., 'Sensor-Vilnius-001')"
     )
-    
+
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional description or notes about the device"
+    )
+
+    # Device type
+    device_type = models.ForeignKey(
+        DeviceType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='devices',
+        help_text="Type of IoT device"
+    )
+
+    # Location information
+    latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Latitude coordinate (-90 to 90)"
+    )
+
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Longitude coordinate (-180 to 180)"
+    )
+
     # Status tracking
     status = models.CharField(
         max_length=20,
