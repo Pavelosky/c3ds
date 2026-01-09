@@ -116,6 +116,19 @@ class Device(models.Model):
         blank=True,
         help_text="PEM-encoded certificate"
     )
+
+    certificate_generated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when certificate was generated (for 24-hour download window)"
+    )
+
+    private_key_pem = models.TextField(
+        null=True,
+        blank=True,
+        help_text="PEM-encoded private key (stored temporarily for 24-hour download window)"
+    )
+
      # Audit trail
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

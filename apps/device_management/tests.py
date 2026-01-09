@@ -367,3 +367,279 @@ class RemoveDeviceViewTest(TestCase):
         self.assertEqual(response.status_code, 403)
         self.device.refresh_from_db()
         self.assertEqual(self.device.status, DeviceStatus.PENDING)
+
+
+class CertificateGenerationViewTest(TestCase):
+    """Tests for the generate_certificate view"""
+
+    @classmethod
+    def setUpTestData(cls):
+        """Set up CA certificate for certificate generation tests"""
+        from django.core.management import call_command
+        from django.conf import settings
+        import os
+
+        if not os.path.exists(settings.CA_CERTIFICATE_PATH):
+            call_command('create_ca')
+
+    def setUp(self):
+        self.client = Client()
+        self.user = User.objects.create_user(username='certuser', password='testpass')
+        self.user.profile.user_type = UserProfile.UserType.PARTICIPANT
+        self.user.profile.save()
+        self.device = Device.objects.create(
+            name='Certificate Test Device',
+            latitude=Decimal('50.0'),
+            longitude=Decimal('10.0'),
+            created_by=self.user,
+            status=DeviceStatus.PENDING
+        )
+        self.url = reverse('participant:generate_certificate', kwargs={'device_id': self.device.id})
+
+    def test_generate_certificate_requires_post(self):
+        """Test generate certificate only accepts POST"""
+        self.client.login(username='certuser', password='testpass')
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.device.refresh_from_db()
+        self.assertIsNone(self.device.certificate_pem)
+
+    def test_generate_certificate_success(self):
+        """Test successful certificate generation"""
+        self.client.login(username='certuser', password='testpass')
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 302)
+
+        self.device.refresh_from_db()
+        self.assertIsNotNone(self.device.certificate_pem)
+        self.assertIsNotNone(self.device.private_key_pem)
+        self.assertIsNotNone(self.device.certificate_serial)
+        self.assertIsNotNone(self.device.certificate_expiry)
+        self.assertIsNotNone(self.device.certificate_generated_at)
+        self.assertEqual(self.device.status, DeviceStatus.PENDING)
+
+    def test_generate_certificate_ownership_check(self):
+        """Test user can only generate certificates for their own devices"""
+        other_user = User.objects.create_user(username='otheruser', password='testpass')
+        other_user.profile.user_type = UserProfile.UserType.PARTICIPANT
+        other_user.profile.save()
+        self.client.login(username='otheruser', password='testpass')
+
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 403)
+        self.device.refresh_from_db()
+        self.assertIsNone(self.device.certificate_pem)
+
+    def test_generate_certificate_revoked_device(self):
+        """Test cannot generate certificate for revoked device"""
+        self.device.status = DeviceStatus.REVOKED
+        self.device.save()
+
+        self.client.login(username='certuser', password='testpass')
+        response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 302)
+
+        self.device.refresh_from_db()
+        self.assertIsNone(self.device.certificate_pem)
+
+    def test_regenerate_certificate(self):
+        """Test regenerating certificate replaces old one"""
+        from django.utils import timezone
+
+        self.client.login(username='certuser', password='testpass')
+
+        # Generate first certificate
+        self.client.post(self.url)
+        self.device.refresh_from_db()
+        first_serial = self.device.certificate_serial
+        first_generated_at = self.device.certificate_generated_at
+
+        # Wait a moment to ensure timestamp difference
+        import time
+        time.sleep(0.1)
+
+        # Regenerate certificate
+        self.client.post(self.url)
+        self.device.refresh_from_db()
+
+        self.assertIsNotNone(self.device.certificate_pem)
+        self.assertNotEqual(self.device.certificate_serial, first_serial)
+        self.assertGreater(self.device.certificate_generated_at, first_generated_at)
+
+
+class DownloadCertificateViewTest(TestCase):
+    """Tests for the download_certificate view"""
+
+    @classmethod
+    def setUpTestData(cls):
+        """Set up CA certificate"""
+        from django.core.management import call_command
+        from django.conf import settings
+        import os
+
+        if not os.path.exists(settings.CA_CERTIFICATE_PATH):
+            call_command('create_ca')
+
+    def setUp(self):
+        from django.utils import timezone
+        from apps.device_management.utils import generate_device_certificate
+
+        self.client = Client()
+        self.user = User.objects.create_user(username='downloaduser', password='testpass')
+        self.user.profile.user_type = UserProfile.UserType.PARTICIPANT
+        self.user.profile.save()
+        self.device = Device.objects.create(
+            name='Download Test Device',
+            latitude=Decimal('50.0'),
+            longitude=Decimal('10.0'),
+            created_by=self.user,
+            status=DeviceStatus.PENDING
+        )
+
+        # Generate certificate
+        cert_pem, key_pem, serial_hex, expiry_date = generate_device_certificate(self.device)
+        self.device.certificate_pem = cert_pem
+        self.device.private_key_pem = key_pem
+        self.device.certificate_serial = serial_hex
+        self.device.certificate_expiry = expiry_date
+        self.device.certificate_generated_at = timezone.now()
+        self.device.save()
+
+        self.url = reverse('participant:download_certificate', kwargs={'device_id': self.device.id})
+
+    def test_download_certificate_success(self):
+        """Test successful certificate download"""
+        self.client.login(username='downloaduser', password='testpass')
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/x-pem-file')
+        self.assertIn('attachment', response['Content-Disposition'])
+        self.assertIn('certificate.pem', response['Content-Disposition'])
+        self.assertEqual(response.content.decode('utf-8'), self.device.certificate_pem)
+
+    def test_download_certificate_ownership_check(self):
+        """Test user can only download their own certificates"""
+        other_user = User.objects.create_user(username='other', password='testpass')
+        other_user.profile.user_type = UserProfile.UserType.PARTICIPANT
+        other_user.profile.save()
+        self.client.login(username='other', password='testpass')
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_download_certificate_no_cert(self):
+        """Test download fails if no certificate exists"""
+        device_no_cert = Device.objects.create(
+            name='No Cert Device',
+            latitude=Decimal('50.0'),
+            longitude=Decimal('10.0'),
+            created_by=self.user,
+            status=DeviceStatus.PENDING
+        )
+        url = reverse('participant:download_certificate', kwargs={'device_id': device_no_cert.id})
+
+        self.client.login(username='downloaduser', password='testpass')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 302)
+
+    def test_download_certificate_expired_window(self):
+        """Test download fails after 24-hour window"""
+        from django.utils import timezone
+
+        # Set certificate generation time to 25 hours ago
+        self.device.certificate_generated_at = timezone.now() - timedelta(hours=25)
+        self.device.save()
+
+        self.client.login(username='downloaduser', password='testpass')
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+
+
+class DownloadPrivateKeyViewTest(TestCase):
+    """Tests for the download_private_key view"""
+
+    @classmethod
+    def setUpTestData(cls):
+        """Set up CA certificate"""
+        from django.core.management import call_command
+        from django.conf import settings
+        import os
+
+        if not os.path.exists(settings.CA_CERTIFICATE_PATH):
+            call_command('create_ca')
+
+    def setUp(self):
+        from django.utils import timezone
+        from apps.device_management.utils import generate_device_certificate
+
+        self.client = Client()
+        self.user = User.objects.create_user(username='keyuser', password='testpass')
+        self.user.profile.user_type = UserProfile.UserType.PARTICIPANT
+        self.user.profile.save()
+        self.device = Device.objects.create(
+            name='Key Test Device',
+            latitude=Decimal('50.0'),
+            longitude=Decimal('10.0'),
+            created_by=self.user,
+            status=DeviceStatus.PENDING
+        )
+
+        # Generate certificate and key
+        cert_pem, key_pem, serial_hex, expiry_date = generate_device_certificate(self.device)
+        self.device.certificate_pem = cert_pem
+        self.device.private_key_pem = key_pem
+        self.device.certificate_serial = serial_hex
+        self.device.certificate_expiry = expiry_date
+        self.device.certificate_generated_at = timezone.now()
+        self.device.save()
+
+        self.url = reverse('participant:download_private_key', kwargs={'device_id': self.device.id})
+
+    def test_download_private_key_success(self):
+        """Test successful private key download"""
+        self.client.login(username='keyuser', password='testpass')
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/x-pem-file')
+        self.assertIn('attachment', response['Content-Disposition'])
+        self.assertIn('private.key', response['Content-Disposition'])
+        self.assertEqual(response.content.decode('utf-8'), self.device.private_key_pem)
+
+    def test_download_private_key_ownership_check(self):
+        """Test user can only download their own private keys"""
+        other_user = User.objects.create_user(username='other', password='testpass')
+        other_user.profile.user_type = UserProfile.UserType.PARTICIPANT
+        other_user.profile.save()
+        self.client.login(username='other', password='testpass')
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 403)
+
+    def test_download_private_key_no_key(self):
+        """Test download fails if no private key exists"""
+        device_no_key = Device.objects.create(
+            name='No Key Device',
+            latitude=Decimal('50.0'),
+            longitude=Decimal('10.0'),
+            created_by=self.user,
+            status=DeviceStatus.PENDING
+        )
+        url = reverse('participant:download_private_key', kwargs={'device_id': device_no_key.id})
+
+        self.client.login(username='keyuser', password='testpass')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 302)
+
+    def test_download_private_key_expired_window(self):
+        """Test download fails after 24-hour window"""
+        from django.utils import timezone
+
+        # Set certificate generation time to 25 hours ago
+        self.device.certificate_generated_at = timezone.now() - timedelta(hours=25)
+        self.device.save()
+
+        self.client.login(username='keyuser', password='testpass')
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)

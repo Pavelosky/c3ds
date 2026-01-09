@@ -40,6 +40,7 @@
                                     <th>Type</th>
                                     <th>Location</th>
                                     <th>Status</th>
+                                    <th>Certificate</th>
                                     <th>Created</th>
                                     <th>Actions</th>
                                 </tr>
@@ -69,6 +70,35 @@
                                             {% else %}bg-secondary{% endif %}">
                                             {{ device.get_status_display }}
                                         </span>
+                                    </td>
+                                    <td>
+                                        {% if device.status == 'REVOKED' %}
+                                            <span class="text-muted">N/A</span>
+                                        {% elif not device.certificate_pem %}
+                                            <form method="post" action="{% url 'participant:generate_certificate' device.id %}" style="display: inline;">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-sm btn-success">Generate</button>
+                                            </form>
+                                        {% else %}
+                                            {% if device.certificate_generated_at %}
+                                                {% now "U" as current_timestamp %}
+                                                {% with expiry_timestamp=device.certificate_generated_at|date:"U"|add:"86400" %}
+                                                    {% if current_timestamp < expiry_timestamp %}
+                                                        <a href="{% url 'participant:download_certificate' device.id %}" class="btn btn-sm btn-outline-primary">Cert</a>
+                                                        <a href="{% url 'participant:download_private_key' device.id %}" class="btn btn-sm btn-outline-primary">Key</a>
+                                                        <br><small class="text-muted">Expires in {{ expiry_timestamp|timeuntil:current_timestamp }}</small>
+                                                    {% else %}
+                                                        <form method="post" action="{% url 'participant:generate_certificate' device.id %}" style="display: inline;">
+                                                            {% csrf_token %}
+                                                            <button type="submit" class="btn btn-sm btn-warning">Regenerate</button>
+                                                        </form>
+                                                        <br><small class="text-danger">Download expired</small>
+                                                    {% endif %}
+                                                {% endwith %}
+                                            {% else %}
+                                                <span class="badge bg-info">Generated</span>
+                                            {% endif %}
+                                        {% endif %}
                                     </td>
                                     <td>{{ device.created_at|date:"Y-m-d H:i" }}</td>
                                     <td>
