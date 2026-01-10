@@ -56,7 +56,9 @@
                                     <br><small class="text-muted">{{ device.description|truncatewords:10 }}</small>
                                     {% endif %}
                                 </td>
-                                <td>{{ device.device_type|default:"—" }}</td>
+                                <td>{{ device.device_type|default:"—" }}<br>
+                                    <small>{{ device.get_certificate_algorithm_display }}</small></td>
+                                </td>
                                 <td>
                                     {% if device.latitude and device.longitude %}
                                     <small>{{ device.latitude }}, {{ device.longitude }}</small>
@@ -69,12 +71,14 @@
                                             {% if device.status == 'ACTIVE' %}bg-success
                                             {% elif device.status == 'PENDING' %}bg-warning
                                             {% elif device.status == 'REVOKED' %}bg-danger
+                                            {% elif device.status == 'EXPIRED' %}bg-info
+                                            {% elif device.status == 'INACTIVE' %}bg-secondary
                                             {% else %}bg-secondary{% endif %}">
                                         {{ device.get_status_display }}
                                     </span>
                                 </td>
                                 <td>
-                                    {% if device.status == 'REVOKED' %}
+                                    {% if device.status == 'REVOKED' or device.status == 'INACTIVE' or device.status == 'EXPIRED' %}
                                     <span class="text-muted">N/A</span>
                                     {% elif not device.certificate_pem %}
                                     <form method="post" action="{% url 'participant:generate_certificate' device.id %}"
