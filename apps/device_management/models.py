@@ -146,3 +146,17 @@ class Device(models.Model):
     
     def __str__(self):
         return f"{self.name} ({self.status})"
+    
+    def is_certificate_available_for_download(self):
+        """
+        Check if the certificate and private key are available for download
+        within the 24-hour window after generation.
+        """
+        if not self.certificate_generated_at:
+            return False
+        
+        from django.utils import timezone
+        from datetime import timedelta
+
+        expiry_time = self.certificate_generated_at + timedelta(hours=24)
+        return timezone.now() <= expiry_time
