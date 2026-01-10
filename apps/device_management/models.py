@@ -11,6 +11,14 @@ class DeviceStatus(models.TextChoices):
     EXPIRED = 'EXPIRED', 'Expired'      #the device's validity period has expired
     INACTIVE = 'INACTIVE', 'Inactive'   #the device is allowed but inactive and not currently in use
 
+# Certificate algorithms choices - for devices with limited resources
+class CertificateAlgorithm(models.TextChoices):
+    ECDSA_P256 = 'ECDSA_P256', 'ECDSA P-256 (secp256r1)'
+    ECDSA_P384 = 'ECDSA_P384', 'ECDSA P-384 (secp384r1)'
+    RSA_2048 = 'RSA_2048', 'RSA-2048'
+    RSA_4096 = 'RSA_4096', 'RSA-4096'
+    
+
 class DeviceType(models.Model):
     """
     Device type model for categorizing IoT devices.
@@ -85,8 +93,18 @@ class Device(models.Model):
     )
 
      # Certificate information
+
+
+    # Certificate algorithm selection
+    certificate_algorithm = models.CharField(
+        max_length=20,
+        choices=CertificateAlgorithm.choices,
+        default=CertificateAlgorithm.ECDSA_P384,
+        help_text="Cryptographic algorithm for device certificate (choose ECDSA for resource-constrained devices)"
+    )
+
     """
-    SQLite couldn't nadle the BigIntegerField well, so we comment it out for now and 
+    SQLite couldn't handle the BigIntegerField well, so we comment it out for now and 
     replaced it with CharField to store serial number as hex string.
     Once PostgreSQL is used, we can switch back to BigIntegerField.
     """

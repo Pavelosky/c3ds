@@ -18,7 +18,7 @@ class DeviceRegistrationForm(forms.ModelForm):
 
     class Meta:
         model = Device
-        fields = ['name', 'description', 'device_type', 'latitude', 'longitude']
+        fields = ['name', 'description', 'device_type', 'latitude', 'longitude', 'certificate_algorithm']
         widgets = {
             'name': forms.TextInput(attrs={
                 'class': 'form-control',
@@ -42,11 +42,15 @@ class DeviceRegistrationForm(forms.ModelForm):
                 'placeholder': 'e.g., 25.279652',
                 'step': '0.000001'
             }),
+            'certificate_algorithm': forms.Select(attrs={
+                'class': 'form-select'
+            }),
         }
         help_texts = {
             'name': 'A unique name to identify your device',
             'latitude': 'Latitude coordinate between -90 and 90',
             'longitude': 'Longitude coordinate between -180 and 180',
+            'certificate_algorithm': 'Select the certificate algorithm for device authentication',
         }
 
     def clean_name(self):

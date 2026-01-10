@@ -82,7 +82,31 @@
                                     </div>
                                 {% endif %}
                             </div>
-
+                            <!-- Certificate Algorithm -->
+                            <div class="mb-3">
+                                <label for="{{ form.certificate_algorithm.id_for_label }}" class="form-label">
+                                    Certificate Algorithm <span class="text-danger">*</span>
+                                </label>
+                                {{ form.certificate_algorithm }}
+                                {% if form.certificate_algorithm.help_text %}
+                                    <div class="form-text">{{ form.certificate_algorithm.help_text }}</div>
+                                {% endif %}
+                                {% if form.certificate_algorithm.errors %}
+                                    <div class="invalid-feedback d-block">
+                                        {{ form.certificate_algorithm.errors|striptags }}
+                                    </div>
+                                {% endif %}
+                                <div class="alert alert-info mt-2 small">
+                                    <strong>Quick Guide:</strong>
+                                    <strong>Certificate Algorithm Recommendations:</strong>
+                                    <ul>
+                                        <li><strong>ECDSA P-256:</strong> Recommended for ESP32, ESP8266, Arduino, and mobile devices (faster, smaller)</li>
+                                        <li><strong>ECDSA P-384:</strong> High security for constrained devices</li>
+                                        <li><strong>RSA-2048:</strong> General purpose, good for Raspberry Pi and desktop systems</li>
+                                        <li><strong>RSA-4096:</strong> Maximum security for powerful devices only</li>
+                                    </ul>
+                                </div>
+                            </div>
                             <!-- Location Section -->
                             <h6 class="mt-4 mb-3">Device Location</h6>
                             <div class="row">
@@ -148,7 +172,7 @@
                             <li>Latitude must be between -90 and 90 degrees</li>
                             <li>Longitude must be between -180 and 180 degrees</li>
                             <li>Device will be created with PENDING status</li>
-                            <li>Certificate generation will be handled in a separate step</li>
+                            <li>Certificate can be generated from the dashboard after device is registered</li>
                         </ul>
                     </div>
                 </div>
