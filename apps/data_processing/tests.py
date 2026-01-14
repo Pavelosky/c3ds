@@ -4,11 +4,41 @@ from apps.device_management.models import Device, DeviceStatus
 from apps.data_processing.models import DeviceMessage
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import padding, ec
 import json
 import base64
 
 # Create your tests here.
+
+# Helper functions
+def sign_message_with_key(private_key, message_body, algorithm='ECDSA_P256'):
+    """
+    Allows for checking both encryption algorithms (RSA and ECDSA).
+    
+    Args:
+        private_key: Private key object (RSA or ECDSA)
+        message_body: Message bytes to sign
+        algorithm: Certificate algorithm used
+    
+    Returns:
+        bytes: Signature
+    """
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    
+    # Determine if key is RSA or ECDSA based on key type
+    if isinstance(private_key, rsa.RSAPrivateKey):
+        # RSA signing
+        return private_key.sign(
+            message_body,
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+    else:
+        # ECDSA signing (default for new devices)
+        return private_key.sign(
+            message_body,
+            ec.ECDSA(hashes.SHA256())
+        )
 
 class DeviceMessageAPITest(TestCase):
     """Test suite for Device Message API authentication and storage"""
@@ -64,10 +94,10 @@ class DeviceMessageAPITest(TestCase):
         )
         
         # Sign the message
-        signature = private_key.sign(
-            message_body,
-            padding.PKCS1v15(),
-            hashes.SHA256()
+        signature = sign_message_with_key(
+            private_key, 
+            message_body, 
+            self.device.certificate_algorithm
         )
         
         # Encode headers
@@ -134,7 +164,7 @@ class DeviceMessageAPITest(TestCase):
             backend=default_backend()
         )
         
-        signature = private_key.sign(message_body, padding.PKCS1v15(), hashes.SHA256())
+        signature = sign_message_with_key(private_key, message_body, self.device.certificate_algorithm)
         
         # Send request
         cert_header = base64.b64encode(cert_pem.encode('utf-8')).decode('utf-8')

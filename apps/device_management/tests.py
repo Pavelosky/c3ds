@@ -217,7 +217,8 @@ class DeviceRegistrationFormTest(TestCase):
             'description': 'Test description',
             'device_type': self.device_type.id,
             'latitude': '54.687157',
-            'longitude': '25.279652'
+            'longitude': '25.279652',
+            'certificate_algorithm': 'ECDSA_P256'
         }
         form = DeviceRegistrationForm(data=form_data, user=self.user)
         self.assertTrue(form.is_valid())
@@ -315,7 +316,8 @@ class AddDeviceViewTest(TestCase):
             'description': 'Test sensor',
             'device_type': self.device_type.id,
             'latitude': '54.687157',
-            'longitude': '25.279652'
+            'longitude': '25.279652',
+            'certificate_algorithm': 'ECDSA_P256'
         }
         response = self.client.post(self.url, data=form_data)
         self.assertEqual(response.status_code, 302)
