@@ -7,7 +7,7 @@ from rest_framework import status
 from django.utils import timezone
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import padding, rsa, ec
 from cryptography.exceptions import InvalidSignature
 from django.conf import settings
 from datetime import datetime
@@ -124,12 +124,29 @@ class DeviceMessageView(APIView):
         # Verify signature of message body using device's public key
         try:
             device_public_key = device_cert.public_key()
-            device_public_key.verify(
-                signature,
-                message_body,
-                padding.PKCS1v15(),
-                hashes.SHA256()
-            )
+            
+            # Verify signature based on key type (RSA or ECDSA)
+            if isinstance(device_public_key, rsa.RSAPublicKey):
+                # RSA signature verification
+                device_public_key.verify(
+                    signature,
+                    message_body,
+                    padding.PKCS1v15(),
+                    hashes.SHA256()
+                )
+            elif isinstance(device_public_key, ec.EllipticCurvePublicKey):
+                # ECDSA signature verification
+                device_public_key.verify(
+                    signature,
+                    message_body,
+                    ec.ECDSA(hashes.SHA256())
+                )
+            else:
+                # Unknown key type
+                return Response(
+                    {'error': 'Unsupported certificate algorithm'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         except InvalidSignature:
             return Response(
                 {'error': 'Invalid message signature'},
