@@ -40,6 +40,8 @@ INSTALLED_APPS = [
 
     # Third party apps
     'rest_framework', 
+    'corsheaders',
+    'django_filters',
 
     # custom apps
     'apps.core',
@@ -50,6 +52,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -135,3 +138,65 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CA_DIR = BASE_DIR / 'ca'
 CA_PRIVATE_KEY_PATH = CA_DIR / 'ca_private_key.pem'
 CA_CERTIFICATE_PATH = CA_DIR / 'ca_certificate.pem'
+
+
+# REST Framework Configuration
+REST_FRAMEWORK = {
+    # Authentication: Use Django sessions (not JWT)
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+
+    # Permissions: Require authentication by default
+    # (Views can override with AllowAny)
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+
+    # Pagination: 25 items per page
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 25,
+
+    # Filtering: Enable query parameters
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+
+    # Rendering: JSON by default, browsable API for development
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',  # Remove in production
+    ],
+
+    # DateTime format: ISO 8601 standard
+    'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%S%z',
+}
+
+# =============================================================================
+# CORS Configuration (for development with Vite)
+# =============================================================================
+
+# Allow credentials (cookies/sessions) to be sent cross-origin
+CORS_ALLOW_CREDENTIALS = True
+
+# Allowed origins for CORS (Vite dev server)
+# Note: In production, use Vite proxy instead of CORS
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:5173',  # Vite dev server
+    'http://127.0.0.1:5173',
+]
+
+# Allow these headers from React frontend
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',      # Django CSRF token
+    'x-requested-with',
+]
