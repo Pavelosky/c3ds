@@ -27,7 +27,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'profile', 'date_joined']
+        fields = ['username', 'profile', 'date_joined']
         read_only_fields = ['id', 'date_joined']
 
 class CurrentUserSerializer(serializers.ModelSerializer):
@@ -35,7 +35,7 @@ class CurrentUserSerializer(serializers.ModelSerializer):
     Serializer for current authenticated user.
     Includes additional fields useful for React state.
     """
-    user_type = serializers.CharField(source='profile.user_type', read_only=True)
+    user_type = serializers.SerializerMethodField()
     is_participant = serializers.SerializerMethodField()
     is_admin = serializers.SerializerMethodField()
 
@@ -51,8 +51,25 @@ class CurrentUserSerializer(serializers.ModelSerializer):
             'date_joined',
         ]
 
+        read_only_fields = ['id', 'date_joined']
+
+    def get_user_type(self, obj):
+        """Get user type, handling missing profile."""
+        # Admin users might not have a profile
+        if obj.is_staff or obj.is_superuser:
+            return 'ADMIN'
+        
+        # Check if profile exists
+        if hasattr(obj, 'profile'):
+            return obj.profile.user_type
+        
+        # Default for users without profile
+        return 'NON_PARTICIPANT'
+
     def get_is_participant(self, obj):
         """Check if user is a participant."""
+        if not hasattr(obj, 'profile'):
+            return False
         return obj.profile.user_type == 'PARTICIPANT'
 
     def get_is_admin(self, obj):
