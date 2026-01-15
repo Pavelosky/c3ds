@@ -18,9 +18,18 @@ from django.contrib import admin
 from django.urls import path, include
 
 urlpatterns = [
+    # Django templates views
     path('', include('apps.dashboard.urls')),
     path('admin/', admin.site.urls),
     path('accounts/', include('apps.core.urls')),
     path('participant/', include('apps.device_management.urls')),
     path('api/device/', include('apps.data_processing.urls')),
+
+    # API URLs (for REACT frontend)
+    path('api/v1/', include([
+        path('dashboard/', include('apps.dashboard.api_urls')),         # NEW FILE
+        path('devices/', include('apps.device_management.api_urls')),  # NEW FILE
+        path('messages/', include('apps.data_processing.api_urls')),   # NEW FILE
+        path('auth/', include('apps.core.api_urls')),                  # NEW FILE
+    ])),
 ]
