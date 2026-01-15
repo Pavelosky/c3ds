@@ -29,18 +29,12 @@ class DeviceListSerializer(serializers.ModelSerializer):
         "device_type": "ESP32",
         "status": "ACTIVE",
         "status_display": "Active",
-        "certificate_algorithm": "ECDSA_P256",
-        "algorithm_display": "ECDSA P-256 (secp256r1)",
-        "certificate_available": false,
-        "certificate_expiry": "2025-01-14T10:00:00Z",
         "created_at": "2024-01-14T10:00:00Z",
         "updated_at": "2024-01-14T10:00:00Z",
         "message_count": 42
     }
     """
     status_display = serializers.CharField(source='get_status_display', read_only=True)
-    algorithm_display = serializers.CharField(source='get_certificate_algorithm_display', read_only=True)
-    certificate_available = serializers.SerializerMethodField()
     message_count = serializers.SerializerMethodField()
 
     class Meta:
@@ -49,20 +43,14 @@ class DeviceListSerializer(serializers.ModelSerializer):
             'id',
             'name',
             'device_type',
+            'latitude',
+            'longitude',
             'status',
             'status_display',
-            'certificate_algorithm',
-            'algorithm_display',
-            'certificate_available',
-            'certificate_expiry',
             'created_at',
             'updated_at',
             'message_count',
         ]
-
-    def get_certificate_available(self, obj):
-        """Check if certificate download is available (24-hour window)."""
-        return obj.is_certificate_available_for_download()
 
     def get_message_count(self, obj):
         """Return count of messages from this device."""
@@ -86,15 +74,9 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
         "location": "Vilnius, Lithuania",
         "status": "ACTIVE",
         "status_display": "Active",
-        "certificate_algorithm": "ECDSA_P256",
-        "algorithm_display": "ECDSA P-256 (secp256r1)",
-        "certificate_serial": "1a2b3c4d5e6f",
-        "certificate_expiry": "2025-01-14T10:00:00Z",
-        "certificate_available": false,
         "created_by": {
             "id": 1,
             "username": "participant1",
-            "email": "participant@example.com",
             "profile": {"user_type": "PARTICIPANT"},
             "date_joined": "2024-01-01T10:00:00Z"
         },
@@ -105,9 +87,7 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
     }
     """
     status_display = serializers.CharField(source='get_status_display', read_only=True)
-    algorithm_display = serializers.CharField(source='get_certificate_algorithm_display', read_only=True)
     created_by = UserSerializer(read_only=True)
-    certificate_available = serializers.SerializerMethodField()
     message_count = serializers.SerializerMethodField()
     recent_messages = serializers.SerializerMethodField()
 
@@ -117,24 +97,16 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
             'id',
             'name',
             'device_type',
-            'location',
+            'latitude',
+            'longitude',
             'status',
             'status_display',
-            'certificate_algorithm',
-            'algorithm_display',
-            'certificate_serial',
-            'certificate_expiry',
-            'certificate_available',
             'created_by',
             'created_at',
             'updated_at',
             'message_count',
             'recent_messages',
         ]
-
-    def get_certificate_available(self, obj):
-        """Check if certificate download is available (24-hour window)."""
-        return obj.is_certificate_available_for_download()
 
     def get_message_count(self, obj):
         """Return count of messages from this device."""
@@ -175,7 +147,8 @@ class DeviceRegistrationSerializer(serializers.ModelSerializer):
         fields = [
             'name',
             'device_type',
-            'location',
+            'latitude',
+            'longitude',
             'certificate_algorithm',
         ]
 

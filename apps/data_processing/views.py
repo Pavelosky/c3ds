@@ -27,6 +27,7 @@ class DeviceMessageView(APIView):
     - X-Device-Certificate: Base64-encoded PEM certificate
     - X-Device-Signature: Base64-encoded signature of message body
     """
+    permission_classes = []  # Disable default authentication - uses certificate auth
     
     def post(self, request):
         # Extract headers
