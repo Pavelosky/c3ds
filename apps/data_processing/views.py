@@ -41,11 +41,14 @@ class DeviceMessageView(APIView):
             # Decode and load certificate
             cert_pem = base64.b64decode(cert_header)
             device_cert = x509.load_pem_x509_certificate(cert_pem)
+        except Exception as e:
+            return Response({'error': f'Invalid certificate format: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
-            #Decode signature
+        try:
+            # Decode signature
             signature = base64.b64decode(signature_header)
         except Exception as e:
-            return Response({'error': 'Invalid certificate or signature format.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': f'Invalid signature format: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
         
         # Validate certificate
         try:
@@ -121,11 +124,11 @@ class DeviceMessageView(APIView):
                 {'error': 'Could not read message body'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         # Verify signature of message body using device's public key
         try:
             device_public_key = device_cert.public_key()
-            
+
             # Verify signature based on key type (RSA or ECDSA)
             if isinstance(device_public_key, rsa.RSAPublicKey):
                 # RSA signature verification
@@ -194,11 +197,6 @@ class DeviceMessageView(APIView):
 
         #Extract certificate serial number
         cert_serial_number = hex(device_cert.serial_number)[2:]
-        
-        # TODO: Store message in database
-        # For now, just log it
-        print(f"Message received from device {device.name} ({device.id})")
-        print(f"Message data: {message_data}")
 
         # Save message to database
         saved_successfully = False
