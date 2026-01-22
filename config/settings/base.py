@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'rest_framework', 
     'corsheaders',
     'django_filters',
+    'drf_spectacular',
 
     # custom apps
     'apps.core',
@@ -172,7 +173,19 @@ REST_FRAMEWORK = {
 
     # DateTime format: ISO 8601 standard
     'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%S%z',
+
+    # Schema generation for API documentation
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
+
+# drf-spectacular settings
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'C3DS API',
+    'DESCRIPTION': 'Civilian Distributed Drone Detection System API',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+}
+
 
 # =============================================================================
 # CORS Configuration (for development with Vite)

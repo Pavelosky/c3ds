@@ -2,21 +2,23 @@ import base64
 import json
 from pathlib import Path
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric import padding, ec
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from cryptography import x509
 
 # Configuration
-CERT_PATH = Path(r"C:\Users\pawel\OneDrive\Documenten\BSc CS UoL\level 6\FP\feature_prototype_certificate_bundle")
-DEVICE_CERT_FILE = CERT_PATH / "feature_prototype_certificate.pem"
-DEVICE_KEY_FILE = CERT_PATH / "feature_prototype_private_key.pem"
+CERT_PATH = Path(r"C:\Users\pawel\Downloads")
+DEVICE_CERT_FILE = CERT_PATH / "test-different-certs_certificate.pem"
+DEVICE_KEY_FILE = CERT_PATH / "test-different-certs_private.key"
 
 # Sample message
 message_data = {
-    "message_type": "presentation",
-    "timestamp": "2024-12-16T22:30:00Z",
+    "message_type": "alert",
+    "timestamp": "2024-01-19T21:30:00Z",
     "data": {
         "status": "online",
-        "battery": 76,
+        "battery": 85,
         "temperature": 22.5,
         "location": {
             "latitude": 51.5074,
@@ -41,12 +43,24 @@ def main():
     message_json = json.dumps(message_data)
     message_bytes = message_json.encode('utf-8')
     
-    # Sign the message with private key
-    signature = private_key.sign(
-        message_bytes,
-        padding.PKCS1v15(),
-        hashes.SHA256()
-    )
+    # Sign the message with private key (algorithm-aware)
+    if isinstance(private_key, RSAPrivateKey):
+        # RSA signing
+        signature = private_key.sign(
+            message_bytes,
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+        print(f"Key type: RSA-{private_key.key_size}")
+    elif isinstance(private_key, EllipticCurvePrivateKey):
+        # ECDSA signing 
+        signature = private_key.sign(
+            message_bytes,
+            ec.ECDSA(hashes.SHA256())
+        )
+        print(f"Key type: ECDSA ({private_key.curve.name})")
+    else:
+        raise ValueError(f"Unsupported key type: {type(private_key)}")
     
     # Encode for HTTP headers
     cert_base64 = base64.b64encode(device_cert_pem).decode('utf-8')

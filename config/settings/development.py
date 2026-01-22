@@ -13,7 +13,7 @@ DATABASES = {
 }
 
 # Allow all hosts for development
-ALLOWED_HOSTS = ['localhost', '127.0.0.1','192.168.1.100','192.168.1.*']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1','192.168.1.100','192.168.1.*', '192.168.1.102']
 
 # Development-specific installed apps (we'll add debug toolbar later)
 INSTALLED_APPS += [
