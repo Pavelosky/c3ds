@@ -1,3 +1,9 @@
+import zipfile
+import io
+import base64
+from pathlib import Path
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.http import HttpResponseForbidden, HttpResponse
@@ -5,8 +11,12 @@ from django.utils import timezone
 from datetime import timedelta
 from apps.core.permissions import participant_required
 from .models import Device, DeviceStatus
-from .forms import DeviceRegistrationForm
+from .forms import DeviceRegistrationForm, DeviceConfigForm
 from .utils import generate_device_certificate
+
+
+# Path to device template files
+DEVICE_TEMPLATES_DIR = Path(__file__).parent / 'device_templates' / 'ESP8266_C3DS_sensor'
 
 
 @participant_required
@@ -222,3 +232,181 @@ def download_private_key(request, device_id):
     response['Content-Disposition'] = f'attachment; filename="{device.name}_private.key"'
 
     return response
+
+
+def _extract_private_key_bytes(private_key_pem: str) -> list[int]:
+    """
+    Extract raw private key bytes from PEM-encoded ECDSA private key.
+    Returns list of integers for use in C/Arduino config.h file.
+    """
+    # Load the private key from PEM
+    private_key = serialization.load_pem_private_key(
+        private_key_pem.encode('utf-8'),
+        password=None
+    )
+
+    # Get the raw private key bytes (32 bytes for P-256)
+    private_numbers = private_key.private_numbers()
+    private_bytes = private_numbers.private_value.to_bytes(32, byteorder='big')
+
+    return list(private_bytes)
+
+
+def _generate_config_h(device, wifi_ssid: str, wifi_password: str, server_url: str) -> str:
+    """
+    Generate config.h content with device-specific credentials.
+    """
+    # Extract private key bytes for the C array
+    key_bytes = _extract_private_key_bytes(device.private_key_pem)
+
+    # Format key bytes as C hex array (8 per line)
+    key_lines = []
+    for i in range(0, len(key_bytes), 8):
+        chunk = key_bytes[i:i+8]
+        hex_values = ', '.join(f'0x{b:02x}' for b in chunk)
+        key_lines.append(f'    {hex_values}')
+    key_array = ',\n'.join(key_lines)
+
+    # Base64 encode the certificate for HTTP header transmission
+    cert_b64 = base64.b64encode(device.certificate_pem.encode('utf-8')).decode('utf-8')
+
+    # Build the API endpoint URL
+    api_url = server_url.rstrip('/') + '/api/device/message/'
+
+    config_content = f'''#ifndef CONFIG_H
+#define CONFIG_H
+
+// ============================================================================
+// NETWORK CONFIGURATION
+// ============================================================================
+
+static const char* WIFI_SSID = "{wifi_ssid}";
+static const char* WIFI_PASSWORD = "{wifi_password}";
+
+static const char* SERVER_URL = "{api_url}";
+
+// NTP (Network Time Protocol) for timestamps
+static const char* NTP_SERVER = "pool.ntp.org";
+static const long GMT_OFFSET_SEC = 0;           // UTC
+static const int DAYLIGHT_OFFSET_SEC = 0;
+
+// ============================================================================
+// DEVICE IDENTITY
+// ============================================================================
+
+static const char* DEVICE_ID = "{device.id}";
+
+// ============================================================================
+// HARDWARE PINS (NodeMCU/Wemos D1 Mini)
+// ============================================================================
+
+static const int BUTTON_PIN = 14;              // D5 - Alert button
+static const int STATUS_LED_PIN = 12;          // D6 - Status indicator
+static const int BUILTIN_LED_PIN = 2;          // D4 - WiFi indicator (inverted logic)
+
+// ============================================================================
+// TIMING CONFIGURATION
+// ============================================================================
+
+static const unsigned long HEARTBEAT_INTERVAL = 20000;    // 20 seconds
+static const unsigned long DEBOUNCE_DELAY = 50;           // 50ms
+static const unsigned long MIN_PRESS_INTERVAL = 2000;     // 2 seconds between button presses
+
+static const unsigned long WIFI_TIMEOUT = 20000;          // 20 seconds
+static const unsigned long HTTP_TIMEOUT = 10000;          // 10 seconds
+
+// ============================================================================
+// CRYPTOGRAPHIC CREDENTIALS
+// ============================================================================
+
+// Device Certificate (Base64 encoded - sent in X-Device-Certificate header)
+// This is the PEM certificate, Base64-encoded for transmission in HTTP header
+static const char* DEVICE_CERTIFICATE_B64 ="{cert_b64}";
+
+// ECDSA P-256 Private Key (32 bytes)
+static const uint8_t ECDSA_PRIVATE_KEY[32] = {{
+{key_array}
+}};
+
+#endif // CONFIG_H
+'''
+    return config_content
+
+
+@participant_required
+def download_device_code(request, device_id):
+    """
+    Download pre-configured ESP8266 code bundle as ZIP file.
+
+    GET: Shows form for WiFi credentials
+    POST: Generates ZIP with config.h containing device credentials
+
+    Only available for devices with generated certificates within 24-hour window.
+    """
+    device = get_object_or_404(Device, id=device_id)
+
+    # Security check: Ensure user owns this device
+    if device.created_by != request.user:
+        messages.error(request, 'You do not have permission to download code for this device.')
+        return HttpResponseForbidden('You do not have permission to download code for this device.')
+
+    # Check if certificate exists
+    if not device.certificate_pem or not device.private_key_pem or not device.certificate_generated_at:
+        messages.error(
+            request,
+            f'No certificate available for device "{device.name}". '
+            f'Please generate a certificate first.'
+        )
+        return redirect('participant:dashboard')
+
+    # Check if download window has expired (24 hours)
+    expiry_window = device.certificate_generated_at + timedelta(hours=24)
+    if timezone.now() > expiry_window:
+        messages.error(
+            request,
+            f'Download window expired for device "{device.name}". '
+            f'Please regenerate the certificate.'
+        )
+        return redirect('participant:dashboard')
+
+    if request.method == 'POST':
+        form = DeviceConfigForm(request.POST)
+        if form.is_valid():
+            wifi_ssid = form.cleaned_data['wifi_ssid']
+            wifi_password = form.cleaned_data['wifi_password']
+            server_url = form.cleaned_data['server_url']
+
+            # Generate config.h content
+            config_content = _generate_config_h(device, wifi_ssid, wifi_password, server_url)
+
+            # Create ZIP file in memory
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                # Add config.h (generated)
+                zip_file.writestr('ESP8266_C3DS_sensor/config.h', config_content)
+
+                # Add all template files (static code)
+                if DEVICE_TEMPLATES_DIR.exists():
+                    for file_path in DEVICE_TEMPLATES_DIR.iterdir():
+                        if file_path.is_file() and file_path.name != 'config.h':
+                            zip_file.write(
+                                file_path,
+                                f'ESP8266_C3DS_sensor/{file_path.name}'
+                            )
+
+            # Prepare response
+            zip_buffer.seek(0)
+            response = HttpResponse(zip_buffer.read(), content_type='application/zip')
+            safe_name = device.name.replace(' ', '_')
+            response['Content-Disposition'] = f'attachment; filename="{safe_name}_ESP8266_code.zip"'
+
+            return response
+    else:
+        form = DeviceConfigForm()
+
+    context = {
+        'form': form,
+        'device': device,
+    }
+
+    return render(request, 'device_management/download_device_code.html', context)

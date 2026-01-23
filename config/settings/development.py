@@ -19,3 +19,6 @@ ALLOWED_HOSTS = ['localhost', '127.0.0.1','192.168.1.100','192.168.1.*', '192.16
 INSTALLED_APPS += [
     # We'll add development-specific apps here later
 ]
+
+# CSRF trusted origins for Vite dev server
+CSRF_TRUSTED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173']

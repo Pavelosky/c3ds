@@ -118,3 +118,37 @@ class DeviceRegistrationForm(forms.ModelForm):
             )
 
         return longitude
+
+class DeviceConfigForm(forms.Form):
+    """
+    Form for collecting WiFi credentials to generate device config.h file.
+    Credentials are used only for ZIP generation, not stored on server.
+    """
+    wifi_ssid = forms.CharField(
+        max_length=32,
+        label='WiFi Network Name (SSID)',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'e.g., MyHomeWiFi'
+        }),
+        help_text='Your WiFi network name'
+    )
+    wifi_password = forms.CharField(
+        max_length=64,
+        label='WiFi Password',
+        widget=forms.PasswordInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Your WiFi password',
+            'autocomplete': 'off'
+        }),
+        help_text='Will not be stored on server'
+    )
+    server_url = forms.CharField(
+        max_length=255,
+        label='C3DS Server Address',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'e.g., http://192.168.1.100:8000'
+        }),
+        help_text='Base URL of the C3DS server'
+    )
