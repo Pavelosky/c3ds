@@ -92,6 +92,8 @@
                                             class="btn btn-sm btn-outline-primary">Cert</a>
                                         <a href="{% url 'participant:download_private_key' device.id %}"
                                             class="btn btn-sm btn-outline-primary">Key</a>
+                                        <a href="{% url 'participant:download_device_code' device.id %}"
+                                            class="btn btn-sm btn-success">Code</a>
                                         <br><small class="text-muted">Available for download</small>
                                         {% elif device.certificate_pem %}
                                         <form method="post" action="{% url 'participant:generate_certificate' device.id %}"
