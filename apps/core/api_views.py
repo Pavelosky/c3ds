@@ -8,6 +8,9 @@ REST API endpoints for user authentication and profile data.
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework import status
+from django.contrib.auth import logout
 from apps.core.serializers import CurrentUserSerializer
 
 
@@ -39,3 +42,14 @@ class CurrentUserView(APIView):
         """Return current user data."""
         serializer = CurrentUserSerializer(request.user)
         return Response(serializer.data)
+    
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout_view(request):
+    """
+    POST /api/v1/auth/logout/
+    Logs out the current user by terminating the session.
+    """
+    logout(request)
+    return Response({"detail": "Successfully logged out."}, status=status.HTTP_200_OK)
