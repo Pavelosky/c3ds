@@ -9,7 +9,7 @@ Three serializers for different use cases:
 """
 
 from rest_framework import serializers
-from apps.device_management.models import Device
+from apps.device_management.models import Device, DeviceType
 from apps.core.serializers import UserSerializer
 
 
@@ -126,14 +126,14 @@ class DeviceRegistrationSerializer(serializers.ModelSerializer):
     """
     Serializer for creating new devices.
     Used when participants register new devices.
-    
+
     Used by:
     - POST /api/v1/devices/participant/
-    
+
     Only includes fields that participants can set.
     Status is automatically set to PENDING.
     created_by is set in the view from request.user.
-    
+
     Example input:
     {
         "name": "ESP32-Sensor-01",
@@ -142,10 +142,14 @@ class DeviceRegistrationSerializer(serializers.ModelSerializer):
         "certificate_algorithm": "ECDSA_P256"
     }
     """
+    # Accept device_type as string (device type name), will be converted to ID
+    device_type = serializers.CharField(write_only=True, required=False, allow_blank=True, allow_null=True)
+
     class Meta:
         model = Device
         fields = [
             'name',
+            'description',
             'device_type',
             'latitude',
             'longitude',
@@ -158,19 +162,32 @@ class DeviceRegistrationSerializer(serializers.ModelSerializer):
         Check that name is not already taken by this user.
         """
         user = self.context['request'].user
-        
+
         # Check if user already has a device with this name
         if Device.objects.filter(name=value, created_by=user).exists():
             raise serializers.ValidationError(
                 "You already have a device with this name."
             )
-        
+
         return value
+
+    def validate_device_type(self, value):
+        """
+        Convert device type name to DeviceType object.
+        Creates DeviceType if it doesn't exist.
+        """
+        if not value:
+            return None
+
+        # Try to get existing DeviceType by name
+        device_type, created = DeviceType.objects.get_or_create(name=value)
+        return device_type
 
     def create(self, validated_data):
         """
         Create device with PENDING status.
         created_by will be set in view from request.user.
         """
+        # device_type is already a DeviceType object from validate_device_type
         validated_data['status'] = 'PENDING'
         return super().create(validated_data)
