@@ -75,3 +75,23 @@ class CurrentUserSerializer(serializers.ModelSerializer):
     def get_is_admin(self, obj):
         """Check if user is admin."""
         return obj.is_staff or obj.is_superuser
+
+class LoginSerializer(serializers.Serializer):
+    """
+    Serializer for login endpoint.
+    Used for API documentation and input validation.
+    """
+    username = serializers.CharField(
+        max_length=150,
+        help_text="Username for authentication"
+    )
+    password = serializers.CharField(
+        write_only=True,  # Password should never be returned in responses
+        style={'input_type': 'password'},
+        help_text="User password"
+    )
+    remember_me = serializers.BooleanField(
+        default=False,
+        required=False,
+        help_text="Keep user logged in for 2 weeks (default: session only)"
+    )
