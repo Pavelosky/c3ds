@@ -17,18 +17,20 @@ class DeviceListSerializer(serializers.ModelSerializer):
     """
     Serializer for device list view.
     Minimal fields for performance in tables/cards.
-    
+
     Used by:
     - GET /api/v1/devices/public/
     - GET /api/v1/devices/participant/
-    
+
     Example output:
     {
         "id": "e3bf7037-ca57-4928-9476-0e40e8b5d30d",
         "name": "ESP32-Sensor-01",
-        "device_type": "ESP32",
+        "device_type": {"id": 1, "name": "ESP32"},
         "status": "ACTIVE",
         "status_display": "Active",
+        "certificate_algorithm": "ECDSA_P256",
+        "certificate_expiry": "2025-01-14T10:00:00Z",
         "created_at": "2024-01-14T10:00:00Z",
         "updated_at": "2024-01-14T10:00:00Z",
         "message_count": 42
@@ -36,17 +38,22 @@ class DeviceListSerializer(serializers.ModelSerializer):
     """
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     message_count = serializers.SerializerMethodField()
+    device_type = serializers.SerializerMethodField()
 
     class Meta:
         model = Device
         fields = [
             'id',
             'name',
+            'description',
             'device_type',
             'latitude',
             'longitude',
             'status',
             'status_display',
+            'certificate_algorithm',
+            'certificate_expiry',
+            'certificate_pem',
             'created_at',
             'updated_at',
             'message_count',
@@ -56,24 +63,34 @@ class DeviceListSerializer(serializers.ModelSerializer):
         """Return count of messages from this device."""
         return obj.messages.count()
 
+    def get_device_type(self, obj):
+        """Return device type as object with id and name."""
+        if obj.device_type:
+            return {
+                'id': obj.device_type.id,
+                'name': obj.device_type.name
+            }
+        return None
+
 
 class DeviceDetailSerializer(serializers.ModelSerializer):
     """
     Serializer for device detail view.
     Includes all fields, relationships, and recent activity.
-    
+
     Used by:
     - GET /api/v1/devices/public/{id}/
     - GET /api/v1/devices/participant/{id}/
-    
+
     Example output:
     {
         "id": "e3bf7037-ca57-4928-9476-0e40e8b5d30d",
         "name": "ESP32-Sensor-01",
-        "device_type": "ESP32",
-        "location": "Vilnius, Lithuania",
+        "device_type": {"id": 1, "name": "ESP32"},
         "status": "ACTIVE",
         "status_display": "Active",
+        "certificate_algorithm": "ECDSA_P256",
+        "certificate_expiry": "2025-01-14T10:00:00Z",
         "created_by": {
             "id": 1,
             "username": "participant1",
@@ -90,17 +107,22 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
     created_by = UserSerializer(read_only=True)
     message_count = serializers.SerializerMethodField()
     recent_messages = serializers.SerializerMethodField()
+    device_type = serializers.SerializerMethodField()
 
     class Meta:
         model = Device
         fields = [
             'id',
             'name',
+            'description',
             'device_type',
             'latitude',
             'longitude',
             'status',
             'status_display',
+            'certificate_algorithm',
+            'certificate_expiry',
+            'certificate_pem',
             'created_by',
             'created_at',
             'updated_at',
@@ -120,6 +142,15 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
         from apps.data_processing.serializers import DeviceMessageListSerializer
         recent = obj.messages.order_by('-timestamp')[:5]
         return DeviceMessageListSerializer(recent, many=True).data
+
+    def get_device_type(self, obj):
+        """Return device type as object with id and name."""
+        if obj.device_type:
+            return {
+                'id': obj.device_type.id,
+                'name': obj.device_type.name
+            }
+        return None
 
 
 class DeviceRegistrationSerializer(serializers.ModelSerializer):
