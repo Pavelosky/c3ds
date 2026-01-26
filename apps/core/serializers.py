@@ -95,3 +95,34 @@ class LoginSerializer(serializers.Serializer):
         required=False,
         help_text="Keep user logged in for 2 weeks (default: session only)"
     )
+
+class RegisterSerializer(serializers.Serializer):
+    """
+    Serializer for registration endpoint.
+    Matches UserRegistrationForm fields for consistency.
+    """
+    username = serializers.CharField(
+        max_length=150,
+        help_text="Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only."
+    )
+    email = serializers.EmailField(
+        required=True,
+        help_text="Required. Enter a valid email address."
+    )
+    password1 = serializers.CharField(
+        write_only=True,
+        style={'input_type': 'password'},
+        help_text="Password must meet Django's security requirements"
+    )
+    password2 = serializers.CharField(
+        write_only=True,
+        style={'input_type': 'password'},
+        help_text="Enter the same password as before, for verification."
+    )
+    user_type = serializers.ChoiceField(
+        choices=[
+            ('PARTICIPANT', 'System Participant - I want to add my sensor device'),
+            ('NON_PARTICIPANT', 'Dashboard User - I want to view the system dashboard'),
+        ],
+        help_text="Select your role in the system"
+    )
