@@ -77,22 +77,6 @@
                                 {% endif %}
                             </div>
 
-                            <!-- Server URL -->
-                            <div class="mb-3">
-                                <label for="{{ form.server_url.id_for_label }}" class="form-label">
-                                    {{ form.server_url.label }} <span class="text-danger">*</span>
-                                </label>
-                                {{ form.server_url }}
-                                {% if form.server_url.help_text %}
-                                    <div class="form-text">{{ form.server_url.help_text }}</div>
-                                {% endif %}
-                                {% if form.server_url.errors %}
-                                    <div class="invalid-feedback d-block">
-                                        {{ form.server_url.errors|striptags }}
-                                    </div>
-                                {% endif %}
-                            </div>
-
                             <!-- Non-field Errors -->
                             {% if form.non_field_errors %}
                                 <div class="alert alert-danger">

@@ -1,5 +1,5 @@
-#include "network.h"
 #include "config.h"
+#include "network.h"
 #include "hardware.h"
 #include <ESP8266WiFi.h>
 #include <time.h>
@@ -40,7 +40,7 @@ bool initializeWiFi() {
     while (WiFi.status() != WL_CONNECTED) {
         // Check for timeout
         if (millis() - startAttempt >= WIFI_TIMEOUT) {
-            Serial.println("\n[NET] ✗ WiFi connection timeout!");
+            Serial.println("\n[NET] WiFi connection timeout!");
             setWiFiLED(false);
             return false;
         }
@@ -53,7 +53,7 @@ bool initializeWiFi() {
         delay(250);
     }
     
-    Serial.println("\n[NET] ✓ WiFi connected!");
+    Serial.println("\n[NET] WiFi connected!");
     Serial.print("[NET] IP Address: ");
     Serial.println(WiFi.localIP());
     Serial.print("[NET] MAC Address: ");
@@ -85,7 +85,7 @@ bool reconnectWiFi() {
 
 bool initializeNTP() {
     if (!isWiFiConnected()) {
-        Serial.println("[NET] ✗ Cannot initialize NTP - WiFi not connected");
+        Serial.println("[NET] Cannot initialize NTP - WiFi not connected");
         return false;
     }
     
@@ -101,21 +101,20 @@ bool initializeNTP() {
     // Wait for time to be set (with timeout)
     Serial.print("[NET] Waiting for time sync");
     int attempts = 0;
-    const int maxAttempts = 20;  // 10 seconds timeout
-    
-    while (time(nullptr) < 100000 && attempts < maxAttempts) {
+
+    while (time(nullptr) < MIN_VALID_UNIX_TIMESTAMP && attempts < NTP_MAX_SYNC_ATTEMPTS) {
         Serial.print(".");
         delay(500);
         attempts++;
     }
     
-    if (attempts >= maxAttempts) {
-        Serial.println("\n[NET] ✗ NTP synchronization timeout!");
+    if (attempts >= NTP_MAX_SYNC_ATTEMPTS) {
+        Serial.println("\n[NET] NTP synchronization timeout!");
         timeInitialized = false;
         return false;
     }
     
-    Serial.println("\n[NET] ✓ Time synchronized!");
+    Serial.println("\n[NET] Time synchronized!");
     
     // Get current time
     time_t now = time(nullptr);
@@ -147,9 +146,15 @@ String getCurrentTimestamp() {
     
     time_t now = time(nullptr);
     struct tm* timeinfo = gmtime(&now);
-    
+
+    // Check for NULL (invalid time)
+    if (timeinfo == nullptr) {
+        Serial.println("[NET] ERROR: gmtime() returned NULL - invalid time");
+        return "1970-01-01T00:00:00Z";
+    }
+
     // Format: 2025-01-18T14:30:45Z (ISO 8601)
-    char timestamp[25];
+    char timestamp[TIMESTAMP_BUFFER_SIZE];
     snprintf(timestamp, sizeof(timestamp),
              "%04d-%02d-%02dT%02d:%02d:%02dZ",
              timeinfo->tm_year + 1900,
@@ -186,7 +191,7 @@ void printNetworkDiagnostics() {
     // WiFi status
     Serial.print("[NET] WiFi Status: ");
     if (isWiFiConnected()) {
-        Serial.println("✓ Connected");
+        Serial.println("Connected");
         Serial.print("[NET] SSID: ");
         Serial.println(WiFi.SSID());
         Serial.print("[NET] IP Address: ");
@@ -197,17 +202,17 @@ void printNetworkDiagnostics() {
         Serial.print(WiFi.RSSI());
         Serial.println(" dBm");
     } else {
-        Serial.println("✗ Disconnected");
+        Serial.println("Disconnected");
     }
     
     // Time synchronization
     Serial.print("[NET] Time Sync: ");
     if (timeInitialized) {
-        Serial.println("✓ Synchronized");
+        Serial.println("Synchronized");
         Serial.print("[NET] Current Time: ");
         Serial.println(getCurrentTimestamp());
     } else {
-        Serial.println("✗ Not synchronized");
+        Serial.println("Not synchronized");
     }
     
     // Uptime

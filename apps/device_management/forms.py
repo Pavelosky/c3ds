@@ -143,12 +143,3 @@ class DeviceConfigForm(forms.Form):
         }),
         help_text='Will not be stored on server'
     )
-    server_url = forms.CharField(
-        max_length=255,
-        label='C3DS Server Address',
-        widget=forms.TextInput(attrs={
-            'class': 'form-control',
-            'placeholder': 'e.g., http://192.168.1.100:8000'
-        }),
-        help_text='Base URL of the C3DS server'
-    )

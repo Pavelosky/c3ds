@@ -72,7 +72,6 @@
                             <th>Message Type</th>
                             <th>Device Status</th>
                             <th>Timestamp</th>
-                            <th>IP Address</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -83,7 +82,6 @@
                             <td><span class="badge bg-primary">{{ message.message_type }}</span></td>
                             <td><span class="badge bg-success">{{ message.device.status }}</span></td>
                             <td>{{ message.timestamp|date:"Y-m-d H:i:s" }}</td>
-                            <td><code>{{ message.ip_address }}</code></td>
                             <td>
                                 <button class="btn btn-sm btn-outline-secondary"
                                     onclick="toggleDetails('details-{{ message.id }}')">
@@ -93,7 +91,7 @@
                         </tr>
                         <!-- Expandable details row -->
                         <tr id="details-{{ message.id }}" class="collapse-row" style="display: none;">
-                            <td colspan="6" class="bg-light">
+                            <td colspan="5" class="bg-light">
                                 <div class="p-3">
                                     <h6>Message Data:</h6>
                                     <pre class="mb-0"><code>{{ message.data|safe }}</code></pre>
@@ -107,7 +105,7 @@
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="6" class="text-center text-muted py-4">
+                            <td colspan="5" class="text-center text-muted py-4">
                                 No messages received yet
                             </td>
                         </tr>

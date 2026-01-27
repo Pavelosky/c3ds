@@ -2,6 +2,7 @@
 #define MESSAGING_H
 
 #include <Arduino.h>
+#include "config.h"
 
 // ============================================================================
 // MESSAGING MODULE
@@ -39,11 +40,14 @@ bool sendHeartbeat();
 
 /**
  * Send an alert message to the server
- * Triggered by button press - indicates detection event
- * 
+ * Triggered by ultrasonic sensor - indicates object detection event
+ *
+ * @param distance Distance of detected object in cm
+ * @param durationSeconds How long object has been detected (in seconds)
+ * @param firstDetectedTimestamp ISO timestamp when object was first detected
  * @return true if message sent successfully, false otherwise
  */
-bool sendAlert();
+bool sendAlert(float distance, unsigned long durationSeconds, const String& firstDetectedTimestamp);
 
 /**
  * Check if it's time to send a heartbeat message

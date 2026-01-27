@@ -1,5 +1,5 @@
-#include "crypto.h"
 #include "config.h"
+#include "crypto.h"
 #include <uECC.h>
 
 // BearSSL for SHA-256 hashing (ESP8266 built-in)
@@ -164,16 +164,16 @@ bool initializeCrypto() {
     curve = uECC_secp256r1();
     
     if (curve == NULL) {
-        Serial.println("[CRYPTO] ✗ Failed to initialize curve!");
+        Serial.println("[CRYPTO] Failed to initialize curve!");
         cryptoReady = false;
         return false;
     }
     
-    Serial.println("[CRYPTO] ✓ Curve: NIST P-256 (secp256r1)");
+    Serial.println("[CRYPTO] Curve: NIST P-256 (secp256r1)");
     
     // Set random number generator
     uECC_set_rng(&RNG);
-    Serial.println("[CRYPTO] ✓ RNG initialized (ESP8266 hardware RNG)");
+    Serial.println("[CRYPTO] RNG initialized (ESP8266 hardware RNG)");
     
     // Verify private key length
     Serial.print("[CRYPTO] Private key size: ");
@@ -181,13 +181,13 @@ bool initializeCrypto() {
     Serial.println(" bytes");
     
     if (sizeof(ECDSA_PRIVATE_KEY) != 32) {
-        Serial.println("[CRYPTO] ✗ Invalid private key size! Expected 32 bytes.");
+        Serial.println("[CRYPTO] Invalid private key size! Expected 32 bytes.");
         cryptoReady = false;
         return false;
     }
     
-    Serial.println("[CRYPTO] ✓ Private key validated");
-    Serial.println("[CRYPTO] ✓ Cryptographic module ready");
+    Serial.println("[CRYPTO] Private key validated");
+    Serial.println("[CRYPTO] Cryptographic module ready");
     Serial.println("[CRYPTO] ═══════════════════════════════════\n");
     
     cryptoReady = true;
@@ -200,7 +200,7 @@ bool isCryptoReady() {
 
 String signMessage(const String& message) {
     if (!cryptoReady) {
-        Serial.println("[CRYPTO] ✗ Crypto not initialized!");
+        Serial.println("[CRYPTO] Crypto not initialized!");
         return "";
     }
     
@@ -238,11 +238,11 @@ String signMessage(const String& message) {
     int result = uECC_sign(ECDSA_PRIVATE_KEY, hash, sizeof(hash), signature, curve);
     
     if (result == 0) {
-        Serial.println("[CRYPTO] ✗ Signing failed!");
+        Serial.println("[CRYPTO] Signing failed!");
         return "";
     }
     
-    Serial.println("[CRYPTO] ✓ Raw signature created (64 bytes)");
+    Serial.println("[CRYPTO] Raw signature created (64 bytes)");
 
     // Step 3: Convert raw signature to DER format (required by server)
     Serial.println("[CRYPTO] Step 3: Converting to DER format...");
@@ -272,7 +272,7 @@ String signMessage(const String& message) {
     Serial.print(encodedSignature.length());
     Serial.println(" characters");
     
-    Serial.println("[CRYPTO] ✓ Signing complete");
+    Serial.println("[CRYPTO] Signing complete");
     Serial.println("[CRYPTO] ───────────────────────────────────\n");
     
     return encodedSignature;

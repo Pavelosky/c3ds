@@ -2,6 +2,7 @@
 #define CRYPTO_H
 
 #include <Arduino.h>
+#include "config.h"
 
 // ============================================================================
 // CRYPTOGRAPHIC OPERATIONS MODULE

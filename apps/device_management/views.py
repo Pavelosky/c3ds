@@ -16,7 +16,8 @@ from .utils import generate_device_certificate
 
 
 # Path to device template files
-DEVICE_TEMPLATES_DIR = Path(__file__).parent / 'device_templates' / 'ESP8266_C3DS_sensor'
+ESP8266_SENSOR_BASE_DIR = Path(__file__).parent / 'device_templates' / 'ESP8266_sensor'
+DEVICE_TEMPLATES_DIR = ESP8266_SENSOR_BASE_DIR / 'ESP8266_P256'
 
 
 @participant_required
@@ -252,7 +253,7 @@ def _extract_private_key_bytes(private_key_pem: str) -> list[int]:
     return list(private_bytes)
 
 
-def _generate_config_h(device, wifi_ssid: str, wifi_password: str, server_url: str) -> str:
+def _generate_config_h(device, wifi_ssid: str, wifi_password: str) -> str:
     """
     Generate config.h content with device-specific credentials.
     """
@@ -270,11 +271,10 @@ def _generate_config_h(device, wifi_ssid: str, wifi_password: str, server_url: s
     # Base64 encode the certificate for HTTP header transmission
     cert_b64 = base64.b64encode(device.certificate_pem.encode('utf-8')).decode('utf-8')
 
-    # Build the API endpoint URL
-    api_url = server_url.rstrip('/') + '/api/device/message/'
-
     config_content = f'''#ifndef CONFIG_H
 #define CONFIG_H
+
+#include <stdint.h>
 
 // ============================================================================
 // NETWORK CONFIGURATION
@@ -283,12 +283,16 @@ def _generate_config_h(device, wifi_ssid: str, wifi_password: str, server_url: s
 static const char* WIFI_SSID = "{wifi_ssid}";
 static const char* WIFI_PASSWORD = "{wifi_password}";
 
-static const char* SERVER_URL = "{api_url}";
+static const char* SERVER_URL = "http://192.168.1.102:8000/api/device/message/";
 
 // NTP (Network Time Protocol) for timestamps
 static const char* NTP_SERVER = "pool.ntp.org";
 static const long GMT_OFFSET_SEC = 0;           // UTC
 static const int DAYLIGHT_OFFSET_SEC = 0;
+
+// NTP Synchronization
+static const unsigned long MIN_VALID_UNIX_TIMESTAMP = 100000;  // Jan 2, 1970 threshold
+static const int NTP_MAX_SYNC_ATTEMPTS = 20;                   // Maximum retry attempts
 
 // ============================================================================
 // DEVICE IDENTITY
@@ -300,20 +304,51 @@ static const char* DEVICE_ID = "{device.id}";
 // HARDWARE PINS (NodeMCU/Wemos D1 Mini)
 // ============================================================================
 
-static const int BUTTON_PIN = 14;              // D5 - Alert button
-static const int STATUS_LED_PIN = 12;          // D6 - Status indicator
-static const int BUILTIN_LED_PIN = 2;          // D4 - WiFi indicator (inverted logic)
+// HC-SR04 Ultrasonic Sensor
+static const int SENSOR_TRIG_PIN = 5;         // D1 - HC-SR04 Trigger pin
+static const int SENSOR_ECHO_PIN = 4;         // D2 - HC-SR04 Echo pin
+
+// LED Indicators
+static const int STATUS_LED_PIN = 12;         // D6 - Status indicator
+static const int BUILTIN_LED_PIN = 2;         // D4 - WiFi indicator (inverted logic)
 
 // ============================================================================
 // TIMING CONFIGURATION
 // ============================================================================
 
 static const unsigned long HEARTBEAT_INTERVAL = 20000;    // 20 seconds
-static const unsigned long DEBOUNCE_DELAY = 50;           // 50ms
-static const unsigned long MIN_PRESS_INTERVAL = 2000;     // 2 seconds between button presses
+static const unsigned long SENSOR_POLL_INTERVAL = 500;    // 500ms - Check sensor twice per second
+static const unsigned long ALERT_INTERVAL = 10000;        // 10 seconds - Send alert every 10s while detecting
 
 static const unsigned long WIFI_TIMEOUT = 20000;          // 20 seconds
 static const unsigned long HTTP_TIMEOUT = 10000;          // 10 seconds
+
+// ============================================================================
+// SENSOR CONFIGURATION (HC-SR04)
+// ============================================================================
+
+// Distance thresholds
+#define DETECTION_THRESHOLD_CM 25.0         // Alert when object <= 25cm
+#define DETECTION_HYSTERESIS_CM 2.0         // Deactivate when object > 27cm
+#define SENSOR_MAX_DISTANCE_CM 400.0        // HC-SR04 max reliable range
+
+// Error handling
+#define CONSECUTIVE_READINGS_REQUIRED 2       // Require 2 consecutive valid readings
+
+// Physics constants
+#define SPEED_OF_SOUND_CM_PER_MICROSECOND 0.0343  // Speed of sound at 20°C (343 m/s = 0.0343 cm/μs)
+#define SENSOR_PULSE_TIMEOUT_MICROSECONDS 30000   // 30ms timeout (~500cm max range)
+#define SENSOR_MIN_DISTANCE_CM 2.0                 // Minimum reliable distance for HC-SR04
+
+// ============================================================================
+// MESSAGE BUFFER CONFIGURATION
+// ============================================================================
+
+// JSON document capacity for ArduinoJson library
+#define MESSAGE_JSON_DOC_SIZE 512                 // Bytes allocated for JSON serialization
+
+// Timestamp buffer size
+#define TIMESTAMP_BUFFER_SIZE 25                  // ISO 8601 format: "YYYY-MM-DDTHH:MM:SSZ" + null terminator
 
 // ============================================================================
 // CRYPTOGRAPHIC CREDENTIALS
@@ -374,24 +409,28 @@ def download_device_code(request, device_id):
         if form.is_valid():
             wifi_ssid = form.cleaned_data['wifi_ssid']
             wifi_password = form.cleaned_data['wifi_password']
-            server_url = form.cleaned_data['server_url']
 
             # Generate config.h content
-            config_content = _generate_config_h(device, wifi_ssid, wifi_password, server_url)
+            config_content = _generate_config_h(device, wifi_ssid, wifi_password)
 
             # Create ZIP file in memory
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                # Add config.h (generated)
-                zip_file.writestr('ESP8266_C3DS_sensor/config.h', config_content)
+                # Add README.md from parent ESP8266_sensor directory (shared across variants)
+                readme_path = ESP8266_SENSOR_BASE_DIR / 'README.md'
+                if readme_path.exists():
+                    zip_file.write(readme_path, 'README.md')
 
-                # Add all template files (static code)
+                # Add config.h (generated)
+                zip_file.writestr('ESP8266_P256/config.h', config_content)
+
+                # Add all template files from the specific variant directory
                 if DEVICE_TEMPLATES_DIR.exists():
                     for file_path in DEVICE_TEMPLATES_DIR.iterdir():
                         if file_path.is_file() and file_path.name != 'config.h':
                             zip_file.write(
                                 file_path,
-                                f'ESP8266_C3DS_sensor/{file_path.name}'
+                                f'ESP8266_P256/{file_path.name}'
                             )
 
             # Prepare response

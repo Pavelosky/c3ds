@@ -8,8 +8,9 @@
 // Focus: Secure IoT Device Management in Safety-critical Smart Environment
 //
 // This firmware implements a secure IoT sensor that:
-// - Sends heartbeat messages every 20 seconds (automatic status updates)
-// - Sends alert messages on button press (manual detection events)
+// - Sends heartbeat messages every 20 seconds (when idle, automatic status updates)
+// - Sends alert messages when HC-SR04 sensor detects object within 25cm (every 10s while detecting)
+// - Heartbeats are skipped during active detection (alerts provide status info)
 // - Signs all messages with ECDSA P-256 cryptographic signatures
 // - Communicates with Django backend via HTTP REST API
 //
@@ -70,7 +71,7 @@ void setup() {
     setWiFiLED(false);
     delay(500);
     
-    Serial.println("✓ Hardware initialization complete\n");
+    Serial.println("Hardware initialization complete\n");
     
     // ────────────────────────────────────────────────────────────────────────
     // STEP 2: Connect to WiFi
@@ -80,7 +81,7 @@ void setup() {
     Serial.println("════════════════════════════════════════════════════════════");
     
     if (!initializeWiFi()) {
-        Serial.println("\n✗ FATAL ERROR: WiFi connection failed!");
+        Serial.println("\nFATAL ERROR: WiFi connection failed!");
         Serial.println("System halted. Please check configuration and reset device.");
         
         // Indicate error with rapid LED blinking
@@ -90,7 +91,7 @@ void setup() {
         }
     }
     
-    Serial.println("✓ Network connection complete\n");
+    Serial.println("Network connection complete\n");
     
     // ────────────────────────────────────────────────────────────────────────
     // STEP 3: Synchronize Time (NTP)
@@ -100,7 +101,7 @@ void setup() {
     Serial.println("════════════════════════════════════════════════════════════");
     
     if (!initializeNTP()) {
-        Serial.println("\n✗ FATAL ERROR: Time synchronization failed!");
+        Serial.println("\nFATAL ERROR: Time synchronization failed!");
         Serial.println("System halted. Please check NTP server and reset device.");
         
         while (true) {
@@ -109,7 +110,7 @@ void setup() {
         }
     }
     
-    Serial.println("✓ Time synchronization complete\n");
+    Serial.println("Time synchronization complete\n");
     
     // ────────────────────────────────────────────────────────────────────────
     // STEP 4: Initialize Cryptography
@@ -119,7 +120,7 @@ void setup() {
     Serial.println("════════════════════════════════════════════════════════════");
     
     if (!initializeCrypto()) {
-        Serial.println("\n✗ FATAL ERROR: Cryptography initialization failed!");
+        Serial.println("\nFATAL ERROR: Cryptography initialization failed!");
         Serial.println("System halted. Please check private key and reset device.");
         
         while (true) {
@@ -128,7 +129,7 @@ void setup() {
         }
     }
     
-    Serial.println("✓ Cryptographic initialization complete\n");
+    Serial.println("Cryptographic initialization complete\n");
     
     // ────────────────────────────────────────────────────────────────────────
     // STEP 5: Initialize Messaging
@@ -138,7 +139,7 @@ void setup() {
     Serial.println("════════════════════════════════════════════════════════════");
     
     if (!initializeMessaging()) {
-        Serial.println("\n✗ FATAL ERROR: Messaging initialization failed!");
+        Serial.println("\nFATAL ERROR: Messaging initialization failed!");
         Serial.println("System halted. Please reset device.");
         
         while (true) {
@@ -147,13 +148,13 @@ void setup() {
         }
     }
     
-    Serial.println("✓ Messaging subsystem complete\n");
+    Serial.println("Messaging subsystem complete\n");
     
     // ────────────────────────────────────────────────────────────────────────
     // Initialization Complete
     // ────────────────────────────────────────────────────────────────────────
     Serial.println("════════════════════════════════════════════════════════════");
-    Serial.println("✓ ALL SYSTEMS OPERATIONAL");
+    Serial.println("ALL SYSTEMS OPERATIONAL");
     Serial.println("════════════════════════════════════════════════════════════");
     Serial.println();
     
@@ -164,8 +165,11 @@ void setup() {
     Serial.println("╚════════════════════════════════════════════════════════════╝");
     Serial.println();
     Serial.println("Operational modes:");
-    Serial.println("  → Heartbeat: Every 20 seconds (automatic)");
-    Serial.println("  → Alert: Press button on D5 (manual)");
+    Serial.println("  → Heartbeat: Every 20 seconds (when idle)");
+    Serial.println("  → Alert: Object detected within 25cm (HC-SR04 sensor)");
+    Serial.println("  → Sensor polling: Every 500ms");
+    Serial.println("  → Alert interval: Every 10 seconds while detecting");
+    Serial.println("  → Note: Heartbeats skipped during active detection");
     Serial.println();
     Serial.println("Waiting for events...\n");
     
@@ -194,48 +198,67 @@ void loop() {
     // Check WiFi Connection
     // ────────────────────────────────────────────────────────────────────────
     if (!isWiFiConnected()) {
-        Serial.println("\n[MAIN] ⚠ WiFi disconnected! Attempting reconnection...");
+        Serial.println("\n[MAIN] WiFi disconnected! Attempting reconnection...");
         setWiFiLED(false);
         
         if (reconnectWiFi()) {
-            Serial.println("[MAIN] ✓ WiFi reconnected successfully");
+            Serial.println("[MAIN] WiFi reconnected successfully");
             
             // Re-sync time after reconnection
             if (!initializeNTP()) {
-                Serial.println("[MAIN] ✗ Warning: Time re-sync failed");
+                Serial.println("[MAIN] Warning: Time re-sync failed");
             }
         } else {
-            Serial.println("[MAIN] ✗ WiFi reconnection failed, will retry...");
+            Serial.println("[MAIN] WiFi reconnection failed, will retry...");
             delay(5000);  // Wait before next attempt
             return;
         }
     }
     
     // ────────────────────────────────────────────────────────────────────────
-    // Check for Button Press (Alert Message)
+    // Poll HC-SR04 Sensor (Check for Object Detection)
     // ────────────────────────────────────────────────────────────────────────
-    if (checkButtonPress()) {
-        Serial.println("[MAIN] Alert triggered by button press!");
-        
-        // Send alert message
-        if (sendAlert()) {
-            Serial.println("[MAIN] ✓ Alert message sent successfully");
+    if (isSensorPollDue()) {
+        pollSensor();  // Updates detection state internally
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Update LED Blinking Pattern (Continuous blink while detecting)
+    // ────────────────────────────────────────────────────────────────────────
+    updateDetectionLED();
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Send Alert Message (If Object Detected and Alert Interval Reached)
+    // ────────────────────────────────────────────────────────────────────────
+    if (isObjectDetected() && isAlertDue()) {
+        Serial.println("[MAIN] Alert triggered by object detection!");
+
+        // Get sensor data
+        float distance = getDetectedDistance();
+        unsigned long duration = getDetectionDuration();
+        String timestamp = getFirstDetectionTimestamp();
+
+        // Send alert message with sensor data
+        if (sendAlert(distance, duration, timestamp)) {
+            Serial.println("[MAIN] Alert message sent successfully");
+            markAlertSent();  // Update timer for next alert
         } else {
-            Serial.println("[MAIN] ✗ Alert message failed");
+            Serial.println("[MAIN] Alert message failed");
         }
     }
     
     // ────────────────────────────────────────────────────────────────────────
     // Check if Heartbeat is Due (Automatic Status Update)
     // ────────────────────────────────────────────────────────────────────────
-    if (isHeartbeatDue()) {
+    // Note: Skip heartbeat when actively detecting - alerts contain all status info
+    if (isHeartbeatDue() && !isObjectDetected()) {
         Serial.println("[MAIN] Heartbeat interval reached");
-        
+
         // Send heartbeat message
         if (sendHeartbeat()) {
-            Serial.println("[MAIN] ✓ Heartbeat sent successfully");
+            Serial.println("[MAIN] Heartbeat sent successfully");
         } else {
-            Serial.println("[MAIN] ✗ Heartbeat failed");
+            Serial.println("[MAIN] Heartbeat failed");
         }
     }
     

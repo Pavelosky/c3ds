@@ -62,10 +62,10 @@ class DeviceMessageDetailSerializer(serializers.ModelSerializer):
     """
     Serializer for message detail view.
     Includes full data payload and all metadata.
-    
+
     Used by:
     - GET /api/v1/messages/{id}/
-    
+
     Example output:
     {
         "id": 123,
@@ -81,9 +81,12 @@ class DeviceMessageDetailSerializer(serializers.ModelSerializer):
             "location": {"lat": 54.687, "lng": 25.279}
         },
         "recieved_at": "2024-01-14T10:30:05Z",
-        "ip_address": "192.168.1.100",
         "certificate_serial": "1a2b3c4d5e6f"
     }
+
+    Security note: ip_address field is intentionally excluded from serialization
+    to prevent leaking device location/network information to frontend clients.
+    IP addresses are still logged in the database for audit purposes.
     """
     device_name = serializers.CharField(source='device.name', read_only=True)
     device_status = serializers.CharField(source='device.status', read_only=True)
@@ -99,6 +102,5 @@ class DeviceMessageDetailSerializer(serializers.ModelSerializer):
             'timestamp',
             'data',
             'recieved_at',
-            'ip_address',
             'certificate_serial',
         ]
