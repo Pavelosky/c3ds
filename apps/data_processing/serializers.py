@@ -32,7 +32,10 @@ class DeviceMessageListSerializer(serializers.ModelSerializer):
     }
     """
     device_name = serializers.CharField(source='device.name', read_only=True)
+    device_latitude = serializers.DecimalField(source='device.latitude', max_digits=9, decimal_places=6, read_only=True)
+    device_longitude = serializers.DecimalField(source='device.longitude', max_digits=9, decimal_places=6, read_only=True)
     data_preview = serializers.SerializerMethodField()
+    confidence = serializers.SerializerMethodField()
 
     class Meta:
         model = DeviceMessage
@@ -40,9 +43,12 @@ class DeviceMessageListSerializer(serializers.ModelSerializer):
             'id',
             'device',
             'device_name',
+            'device_latitude',
+            'device_longitude',
             'message_type',
             'timestamp',
             'data_preview',
+            'confidence',
             'recieved_at',
         ]
 
@@ -56,6 +62,13 @@ class DeviceMessageListSerializer(serializers.ModelSerializer):
         if len(data_str) > 100:
             return data_str[:100] + '...'
         return data_str
+
+    def get_confidence(self, obj):
+        """
+        Extract confidence value from data field if present.
+        Returns float between 0-1 or None if not present.
+        """
+        return obj.data.get('confidence', None)
 
 
 class DeviceMessageDetailSerializer(serializers.ModelSerializer):

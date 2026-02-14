@@ -6,9 +6,9 @@ import uuid
 # Create your models here.
 class DeviceStatus(models.TextChoices):
     ACTIVE = 'ACTIVE', 'Active'         #the device is active and operational
-    PENDING = 'PENDING', 'Pending'      #the device is pending activation
+    PENDING = 'PENDING', 'Pending'      #the device hasn't connected to the server yet
     REVOKED = 'REVOKED', 'Revoked'      #the device has been revoked and is no longer valid
-    EXPIRED = 'EXPIRED', 'Expired'      #the device's validity period has expired
+    EXPIRED = 'EXPIRED', 'Expired'      #the device's certificate has expired
     INACTIVE = 'INACTIVE', 'Inactive'   #the device is allowed but inactive and not currently in use
 
 # Certificate algorithms choices - for devices with limited resources

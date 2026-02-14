@@ -87,6 +87,8 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
         "id": "e3bf7037-ca57-4928-9476-0e40e8b5d30d",
         "name": "ESP32-Sensor-01",
         "device_type": {"id": 1, "name": "ESP32"},
+        "latitude": 54.687157,
+        "longitude": 25.279652,
         "status": "ACTIVE",
         "status_display": "Active",
         "certificate_algorithm": "ECDSA_P256",

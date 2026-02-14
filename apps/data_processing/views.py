@@ -3,16 +3,17 @@ import json
 from django.shortcuts import render
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, generics
 from django.utils import timezone
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa, ec
 from cryptography.exceptions import InvalidSignature
 from django.conf import settings
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from .models import DeviceMessage
+from .serializers import DeviceMessageListSerializer
 from dateutil import parser as date_parser
 
 from apps.device_management.models import Device, DeviceStatus
@@ -231,5 +232,59 @@ class DeviceMessageView(APIView):
             response_data['message'] = 'Message stored successfully.'
         else:
             response_data['message'] = 'Failed to store message.'
-        
+
         return Response(response_data, status=status.HTTP_200_OK)
+
+
+class DeviceMessageListView(generics.ListAPIView):
+    """
+    API endpoint for retrieving device messages with filtering.
+
+    GET /api/v1/messages/
+
+    Query Parameters:
+    - message_type: Filter by message type (e.g., "alert", "heartbeat")
+    - time_window: Filter by time window ("1h", "24h", "7d", "all")
+    - limit: Number of messages to return (default: 50, max: 200)
+
+    Example:
+    GET /api/v1/messages/?message_type=alert&time_window=24h&limit=50
+
+    Returns messages ordered by received_at (newest first).
+    """
+    serializer_class = DeviceMessageListSerializer
+    permission_classes = []  # Public endpoint (can be restricted later)
+
+    def get_queryset(self):
+        """
+        Filter messages based on query parameters.
+        """
+        queryset = DeviceMessage.objects.select_related('device').all()
+
+        # Filter by message type
+        message_type = self.request.query_params.get('message_type', None)
+        if message_type:
+            queryset = queryset.filter(message_type=message_type)
+
+        # Filter by time window
+        time_window = self.request.query_params.get('time_window', '24h')
+        if time_window != 'all':
+            now = timezone.now()
+            time_mapping = {
+                '1h': timedelta(hours=1),
+                '24h': timedelta(hours=24),
+                '7d': timedelta(days=7),
+            }
+
+            if time_window in time_mapping:
+                start_time = now - time_mapping[time_window]
+                queryset = queryset.filter(recieved_at__gte=start_time)
+
+        # Limit results (default: 50, max: 200)
+        limit = self.request.query_params.get('limit', 50)
+        try:
+            limit = min(int(limit), 200)
+        except (ValueError, TypeError):
+            limit = 50
+
+        return queryset.order_by('-recieved_at')[:limit]
