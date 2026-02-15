@@ -15,6 +15,14 @@ db.sqlite3
 db.sqlite3-journal
 *.sqlite3
 
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Static files (production)
+staticfiles/
+
 # Certificate Authority - NEVER COMMIT THESE
 ca/
 *.pem
