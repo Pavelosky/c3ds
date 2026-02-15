@@ -284,191 +284,6 @@ class DeviceRegistrationFormTest(TestCase):
         self.assertFalse(form.is_valid())
 
 
-class AddDeviceViewTest(TestCase):
-    """Tests for the add_device view"""
-
-    def setUp(self):
-        self.client = Client()
-        self.user = User.objects.create_user(username='participant1', password='testpass')
-        self.user.profile.user_type = UserProfile.UserType.PARTICIPANT
-        self.user.profile.save()
-        self.device_type = DeviceType.objects.create(name="ESP32")
-        self.url = reverse('participant:add_device')
-
-    def test_add_device_requires_login(self):
-        """Test add device page requires authentication"""
-        response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 302)
-        self.assertIn('/accounts/login/', response.url)
-
-    def test_add_device_get_request(self):
-        """Test GET request shows form"""
-        self.client.login(username='participant1', password='testpass')
-        response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 200)
-        self.assertIn('form', response.context)
-
-    def test_add_device_post_valid(self):
-        """Test POST request creates device"""
-        self.client.login(username='participant1', password='testpass')
-        form_data = {
-            'name': 'New Sensor',
-            'description': 'Test sensor',
-            'device_type': self.device_type.id,
-            'latitude': '54.687157',
-            'longitude': '25.279652',
-            'certificate_algorithm': 'ECDSA_P256'
-        }
-        response = self.client.post(self.url, data=form_data)
-        self.assertEqual(response.status_code, 302)
-        device = Device.objects.get(name='New Sensor')
-        self.assertEqual(device.created_by, self.user)
-        self.assertEqual(device.status, DeviceStatus.PENDING)
-
-
-class RemoveDeviceViewTest(TestCase):
-    """Tests for the remove_device view"""
-
-    def setUp(self):
-        self.client = Client()
-        self.user = User.objects.create_user(username='owner', password='testpass')
-        self.user.profile.user_type = UserProfile.UserType.PARTICIPANT
-        self.user.profile.save()
-        self.device = Device.objects.create(
-            name='Test Device',
-            latitude=Decimal('50.0'),
-            longitude=Decimal('10.0'),
-            created_by=self.user,
-            status=DeviceStatus.PENDING
-        )
-        self.url = reverse('participant:remove_device', kwargs={'device_id': self.device.id})
-
-    def test_remove_device_requires_post(self):
-        """Test remove device only accepts POST"""
-        self.client.login(username='owner', password='testpass')
-        response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 302)
-        self.device.refresh_from_db()
-        self.assertEqual(self.device.status, DeviceStatus.PENDING)
-
-    def test_remove_device_success(self):
-        """Test removing device sets status to REVOKED"""
-        self.client.login(username='owner', password='testpass')
-        response = self.client.post(self.url)
-        self.assertEqual(response.status_code, 302)
-        self.device.refresh_from_db()
-        self.assertEqual(self.device.status, DeviceStatus.REVOKED)
-
-    def test_remove_device_ownership_check(self):
-        """Test user can only remove their own devices"""
-        other_user = User.objects.create_user(username='other', password='testpass')
-        other_user.profile.user_type = UserProfile.UserType.PARTICIPANT
-        other_user.profile.save()
-        self.client.login(username='other', password='testpass')
-        response = self.client.post(self.url)
-        self.assertEqual(response.status_code, 403)
-        self.device.refresh_from_db()
-        self.assertEqual(self.device.status, DeviceStatus.PENDING)
-
-
-class CertificateGenerationViewTest(TestCase):
-    """Tests for the generate_certificate view"""
-
-    @classmethod
-    def setUpTestData(cls):
-        """Set up CA certificate for certificate generation tests"""
-        from django.core.management import call_command
-        from django.conf import settings
-        import os
-
-        if not os.path.exists(settings.CA_CERTIFICATE_PATH):
-            call_command('create_ca')
-
-    def setUp(self):
-        self.client = Client()
-        self.user = User.objects.create_user(username='certuser', password='testpass')
-        self.user.profile.user_type = UserProfile.UserType.PARTICIPANT
-        self.user.profile.save()
-        self.device = Device.objects.create(
-            name='Certificate Test Device',
-            latitude=Decimal('50.0'),
-            longitude=Decimal('10.0'),
-            created_by=self.user,
-            status=DeviceStatus.PENDING
-        )
-        self.url = reverse('participant:generate_certificate', kwargs={'device_id': self.device.id})
-
-    def test_generate_certificate_requires_post(self):
-        """Test generate certificate only accepts POST"""
-        self.client.login(username='certuser', password='testpass')
-        response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 302)
-        self.device.refresh_from_db()
-        self.assertIsNone(self.device.certificate_pem)
-
-    def test_generate_certificate_success(self):
-        """Test successful certificate generation"""
-        self.client.login(username='certuser', password='testpass')
-        response = self.client.post(self.url)
-        self.assertEqual(response.status_code, 302)
-
-        self.device.refresh_from_db()
-        self.assertIsNotNone(self.device.certificate_pem)
-        self.assertIsNotNone(self.device.private_key_pem)
-        self.assertIsNotNone(self.device.certificate_serial)
-        self.assertIsNotNone(self.device.certificate_expiry)
-        self.assertIsNotNone(self.device.certificate_generated_at)
-        self.assertEqual(self.device.status, DeviceStatus.PENDING)
-
-    def test_generate_certificate_ownership_check(self):
-        """Test user can only generate certificates for their own devices"""
-        other_user = User.objects.create_user(username='otheruser', password='testpass')
-        other_user.profile.user_type = UserProfile.UserType.PARTICIPANT
-        other_user.profile.save()
-        self.client.login(username='otheruser', password='testpass')
-
-        response = self.client.post(self.url)
-        self.assertEqual(response.status_code, 403)
-        self.device.refresh_from_db()
-        self.assertIsNone(self.device.certificate_pem)
-
-    def test_generate_certificate_revoked_device(self):
-        """Test cannot generate certificate for revoked device"""
-        self.device.status = DeviceStatus.REVOKED
-        self.device.save()
-
-        self.client.login(username='certuser', password='testpass')
-        response = self.client.post(self.url)
-        self.assertEqual(response.status_code, 302)
-
-        self.device.refresh_from_db()
-        self.assertIsNone(self.device.certificate_pem)
-
-    def test_regenerate_certificate(self):
-        """Test regenerating certificate replaces old one"""
-        from django.utils import timezone
-
-        self.client.login(username='certuser', password='testpass')
-
-        # Generate first certificate
-        self.client.post(self.url)
-        self.device.refresh_from_db()
-        first_serial = self.device.certificate_serial
-        first_generated_at = self.device.certificate_generated_at
-
-        # Wait a moment to ensure timestamp difference
-        import time
-        time.sleep(0.1)
-
-        # Regenerate certificate
-        self.client.post(self.url)
-        self.device.refresh_from_db()
-
-        self.assertIsNotNone(self.device.certificate_pem)
-        self.assertNotEqual(self.device.certificate_serial, first_serial)
-        self.assertGreater(self.device.certificate_generated_at, first_generated_at)
-
-
 class DownloadCertificateViewTest(TestCase):
     """Tests for the download_certificate view"""
 
@@ -543,7 +358,7 @@ class DownloadCertificateViewTest(TestCase):
 
         self.client.login(username='downloaduser', password='testpass')
         response = self.client.get(url)
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 404)  # Not Found
 
     def test_download_certificate_expired_window(self):
         """Test download fails after 24-hour window"""
@@ -555,7 +370,7 @@ class DownloadCertificateViewTest(TestCase):
 
         self.client.login(username='downloaduser', password='testpass')
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 410)  # Gone
 
 
 class DownloadPrivateKeyViewTest(TestCase):
@@ -632,7 +447,7 @@ class DownloadPrivateKeyViewTest(TestCase):
 
         self.client.login(username='keyuser', password='testpass')
         response = self.client.get(url)
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 404)  # Not Found
 
     def test_download_private_key_expired_window(self):
         """Test download fails after 24-hour window"""
@@ -644,4 +459,4 @@ class DownloadPrivateKeyViewTest(TestCase):
 
         self.client.login(username='keyuser', password='testpass')
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 410)  # Gone

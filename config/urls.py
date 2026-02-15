@@ -19,14 +19,16 @@ from django.urls import path, include
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
-    # Django templates views
-    path('', include('apps.dashboard.urls')),
+    # Django Admin
     path('admin/', admin.site.urls),
-    path('accounts/', include('apps.core.urls')),
+
+    # Device Management (legacy file download endpoints - still needed)
     path('participant/', include('apps.device_management.urls')),
+
+    # Device Message Ingestion (CRITICAL - external devices use this)
     path('api/device/', include('apps.data_processing.urls')),
 
-    # API URLs (for REACT frontend)
+    # API URLs (for React frontend)
     path('api/v1/', include([
         path('dashboard/', include('apps.dashboard.api_urls')),         # NEW FILE
         path('devices/', include('apps.device_management.api_urls')),  # NEW FILE
