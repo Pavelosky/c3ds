@@ -236,3 +236,66 @@ class DeviceRegistrationSerializer(serializers.ModelSerializer):
         # device_type is already a DeviceType object from validate_device_type
         validated_data['status'] = 'PENDING'
         return super().create(validated_data)
+
+
+class DeviceUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for updating existing devices.
+    Used when participants edit their device details.
+
+    Used by:
+    - PATCH /api/v1/devices/participant/{id}/
+
+    Only includes fields that participants can modify after creation.
+    Certificate-related fields and status cannot be changed via this endpoint.
+
+    Example input:
+    {
+        "name": "ESP32-Sensor-01-Updated",
+        "description": "Updated description",
+        "device_type": "ESP32",
+        "latitude": 54.687157,
+        "longitude": 25.279652
+    }
+    """
+    # Accept device_type as string (device type name), will be converted to ID
+    device_type = serializers.CharField(write_only=True, required=False, allow_blank=True, allow_null=True)
+
+    class Meta:
+        model = Device
+        fields = [
+            'name',
+            'description',
+            'device_type',
+            'latitude',
+            'longitude',
+        ]
+
+    def validate_name(self, value):
+        """
+        Validate device name.
+        Check that name is not already taken by another device of this user.
+        """
+        user = self.context['request'].user
+        device_id = self.instance.id if self.instance else None
+
+        # Check if user already has another device with this name
+        existing = Device.objects.filter(name=value, created_by=user).exclude(id=device_id)
+        if existing.exists():
+            raise serializers.ValidationError(
+                "You already have another device with this name."
+            )
+
+        return value
+
+    def validate_device_type(self, value):
+        """
+        Convert device type name to DeviceType object.
+        Creates DeviceType if it doesn't exist.
+        """
+        if not value:
+            return None
+
+        # Try to get existing DeviceType by name
+        device_type, created = DeviceType.objects.get_or_create(name=value)
+        return device_type

@@ -18,6 +18,7 @@ from apps.device_management.serializers import (
     DeviceListSerializer,
     DeviceDetailSerializer,
     DeviceRegistrationSerializer,
+    DeviceUpdateSerializer,
     )
 from django.utils import timezone
 from datetime import timedelta
@@ -117,6 +118,8 @@ class ParticipantDeviceViewSet(viewsets.ModelViewSet):
             return DeviceDetailSerializer
         elif self.action == 'create':
             return DeviceRegistrationSerializer
+        elif self.action in ['update', 'partial_update']:
+            return DeviceUpdateSerializer
         return DeviceRegistrationSerializer
 
     def perform_create(self, serializer):
