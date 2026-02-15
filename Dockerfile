@@ -34,8 +34,8 @@ COPY . .
 # Create staticfiles directory
 RUN mkdir -p staticfiles
 
-# Collect static files (may fail if DB not available, that's OK)
-RUN python manage.py collectstatic --noinput --settings=config.settings.production || true
+# Make startup script executable
+RUN chmod +x start.sh
 
 # Create non-root user for security
 RUN useradd -m -u 1000 django && chown -R django:django /app
@@ -44,6 +44,5 @@ USER django
 # Expose port (Railway will override with PORT env var)
 EXPOSE 8000
 
-# Use Gunicorn for production WSGI server
-# Railway sets PORT environment variable
-CMD gunicorn config.wsgi --bind 0.0.0.0:${PORT:-8000} --workers 4 --timeout 60 --access-logfile - --error-logfile -
+# Use startup script for better logging and diagnostics
+CMD ["./start.sh"]
