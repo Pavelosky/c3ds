@@ -4,6 +4,9 @@ from decouple import config
 # Debug should be True for development
 DEBUG = True
 
+# Development secret key (not secure, only for local development)
+SECRET_KEY = "django-insecure-dev-only-idwik1jp_i1ssn=16(*=y259un803qg-7r17)ma@u0_z1a!y!^"
+
 # For development, we'll use SQLite
 DATABASES = {
     'default': {
