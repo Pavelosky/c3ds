@@ -50,6 +50,7 @@ class DashboardStatsSerializer(serializers.Serializer):
     total_messages = serializers.IntegerField()
     messages_today = serializers.IntegerField()
     messages_this_week = serializers.IntegerField()
+    alerts_last_2h = serializers.IntegerField()
 
     # Optional detailed stats (can be added later)
     devices_by_status = serializers.DictField(

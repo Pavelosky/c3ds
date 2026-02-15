@@ -254,6 +254,7 @@ class DeviceMessageListView(generics.ListAPIView):
     """
     serializer_class = DeviceMessageListSerializer
     permission_classes = []  # Public endpoint (can be restricted later)
+    pagination_class = None  # Disable DRF pagination, use custom limit parameter instead
 
     def get_queryset(self):
         """
@@ -272,6 +273,7 @@ class DeviceMessageListView(generics.ListAPIView):
             now = timezone.now()
             time_mapping = {
                 '1h': timedelta(hours=1),
+                '6h': timedelta(hours=6),
                 '24h': timedelta(hours=24),
                 '7d': timedelta(days=7),
             }

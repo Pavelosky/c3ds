@@ -31,7 +31,8 @@ class DashboardStatsView(APIView):
         "revoked_devices": 1,
         "total_messages": 1542,
         "messages_today": 142,
-        "messages_this_week": 987
+        "messages_this_week": 987,
+        "alerts_last_2h": 5
     }
     """
     permission_classes = [AllowAny]  # Public endpoint
@@ -43,6 +44,7 @@ class DashboardStatsView(APIView):
         now = timezone.now()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_start = now - timedelta(days=7)
+        two_hours_ago = now - timedelta(hours=2)
 
         # Device counts by status
         total_devices = Device.objects.count()
@@ -58,6 +60,10 @@ class DashboardStatsView(APIView):
         messages_this_week = DeviceMessage.objects.filter(
             recieved_at__gte=week_start
         ).count()
+        alerts_last_2h = DeviceMessage.objects.filter(
+            message_type='alert',
+            recieved_at__gte=two_hours_ago
+        ).count()
 
         # Prepare data dictionary
         stats = {
@@ -68,6 +74,7 @@ class DashboardStatsView(APIView):
             'total_messages': total_messages,
             'messages_today': messages_today,
             'messages_this_week': messages_this_week,
+            'alerts_last_2h': alerts_last_2h,
         }
 
         # Serialize and return
