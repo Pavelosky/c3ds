@@ -110,6 +110,7 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
     message_count = serializers.SerializerMethodField()
     recent_messages = serializers.SerializerMethodField()
     device_type = serializers.SerializerMethodField()
+    is_certificate_available_for_download = serializers.SerializerMethodField()
 
     class Meta:
         model = Device
@@ -124,12 +125,14 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
             'status_display',
             'certificate_algorithm',
             'certificate_expiry',
+            'certificate_generated_at',
             'certificate_pem',
             'created_by',
             'created_at',
             'updated_at',
             'message_count',
             'recent_messages',
+            'is_certificate_available_for_download',
         ]
 
     def get_message_count(self, obj):
@@ -153,6 +156,15 @@ class DeviceDetailSerializer(serializers.ModelSerializer):
                 'name': obj.device_type.name
             }
         return None
+
+    def get_is_certificate_available_for_download(self, obj):
+        """
+        Check if certificate is available for download (within 24-hour window).
+
+        This allows the frontend to show/hide download buttons without
+        client-side date calculations.
+        """
+        return obj.is_certificate_available_for_download()
 
 
 class DeviceRegistrationSerializer(serializers.ModelSerializer):
