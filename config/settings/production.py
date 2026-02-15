@@ -17,9 +17,9 @@ ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=Csv)
 
 # Database - Railway PostgreSQL
 # Railway automatically provides DATABASE_URL environment variable
+# If not set, dj_database_url will raise an error (which is correct for production)
 DATABASES = {
     'default': dj_database_url.config(
-        default=config('DATABASE_URL'),
         conn_max_age=600,  # Connection pooling (10 minutes)
         conn_health_checks=True,  # Enable health checks
     )
