@@ -50,6 +50,13 @@ SECURE_HSTS_SECONDS = 31536000  # 1 year
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 
+# Session and CSRF cookie settings for nginx proxy
+# Since frontend proxies to backend via nginx, cookies must work across the proxy
+SESSION_COOKIE_SAMESITE = None  # Allow cookies to be sent in cross-site requests via proxy
+CSRF_COOKIE_SAMESITE = None     # Allow CSRF cookies via proxy
+SESSION_COOKIE_HTTPONLY = True  # Prevent JavaScript access (security)
+CSRF_COOKIE_HTTPONLY = False    # Must be False so JavaScript can read it
+
 # Certificate Authority files (Railway volume)
 # CA files are mounted at /data/ca via Railway volume
 CA_DIR = Path('/data/ca')
