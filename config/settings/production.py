@@ -14,7 +14,10 @@ import os
 # Security
 DEBUG = config('DEBUG', cast=bool, default=False)
 SECRET_KEY = config('SECRET_KEY')
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+allowed_hosts_str = os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost")
+ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_str.split(',') if host.strip()]
+# Add Railway healthcheck host
+ALLOWED_HOSTS.append('healthcheck.railway.app')
 
 # Database - Railway PostgreSQL
 # Railway automatically provides DATABASE_URL environment variable
