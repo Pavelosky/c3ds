@@ -42,7 +42,8 @@ CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins.split(',') if 
 CSRF_TRUSTED_ORIGINS = [f"https://{host}" for host in ALLOWED_HOSTS]
 
 # Security headers (enforce HTTPS)
-SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', cast=bool, default=True)
+# Disable SSL redirect - Railway handles HTTPS at load balancer level
+SECURE_SSL_REDIRECT = False
 SESSION_COOKIE_SECURE = True  # Only send session cookie over HTTPS
 CSRF_COOKIE_SECURE = True  # Only send CSRF cookie over HTTPS
 SECURE_HSTS_SECONDS = 31536000  # 1 year
