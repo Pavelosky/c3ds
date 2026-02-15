@@ -6,7 +6,7 @@ All sensitive values are read from environment variables.
 """
 
 from .base import *
-from decouple import config, Csv
+from decouple import config
 import dj_database_url
 from pathlib import Path
 import os
@@ -34,7 +34,8 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 # CORS - Production frontend domains
 # Only allow requests from specified origins
 # Default to empty list if not set (will need to be configured after frontend deployment)
-CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', cast=Csv, default='')
+cors_origins = os.environ.get('CORS_ALLOWED_ORIGINS', '')
+CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins.split(',') if origin.strip()]
 CSRF_TRUSTED_ORIGINS = [f"https://{host}" for host in ALLOWED_HOSTS]
 
 # Security headers (enforce HTTPS)
