@@ -12,12 +12,22 @@ from pathlib import Path
 import os
 
 # Security
+# DEBUG = config('DEBUG', cast=bool, default=False)
+# SECRET_KEY = config('SECRET_KEY')
+# allowed_hosts_str = os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost")
+# ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_str.split(',') if host.strip()]
+# Add Railway healthcheck host
+# ALLOWED_HOSTS.append('healthcheck.railway.app')
+
+
+# Security
 DEBUG = config('DEBUG', cast=bool, default=False)
 SECRET_KEY = config('SECRET_KEY')
-allowed_hosts_str = os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost")
-ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_str.split(',') if host.strip()]
+ALLOWED_HOSTS = ['illustrious-endurance-production.up.railway.app', 'healthcheck.railway.app']
 # Add Railway healthcheck host
-ALLOWED_HOSTS.append('healthcheck.railway.app')
+# ALLOWED_HOSTS.append('healthcheck.railway.app')
+
+
 
 # Database - Railway PostgreSQL
 # Railway automatically provides DATABASE_URL environment variable
@@ -37,8 +47,9 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 # CORS - Production frontend domains
 # Only allow requests from specified origins
 # Default to empty list if not set (will need to be configured after frontend deployment)
-cors_origins = os.environ.get('CORS_ALLOWED_ORIGINS', '')
-CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins.split(',') if origin.strip()]
+# cors_origins = os.environ.get('CORS_ALLOWED_ORIGINS', '')
+# CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins.split(',') if origin.strip()]
+CORS_ALLOWED_ORIGINS = ["https://c3ds-frontend-production.up.railway.app",]
 CSRF_TRUSTED_ORIGINS = [f"https://{host}" for host in ALLOWED_HOSTS]
 
 # Security headers (enforce HTTPS)
