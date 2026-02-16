@@ -23,7 +23,8 @@ import os
 # Security
 DEBUG = config('DEBUG', cast=bool, default=False)
 SECRET_KEY = config('SECRET_KEY')
-ALLOWED_HOSTS = ['illustrious-endurance-production.up.railway.app', 'healthcheck.railway.app']
+ALLOWED_HOSTS = ['illustrious-endurance-production.up.railway.app', 
+                'healthcheck.railway.app']
 # Add Railway healthcheck host
 # ALLOWED_HOSTS.append('healthcheck.railway.app')
 
@@ -64,7 +65,10 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
-CSRF_TRUSTED_ORIGINS = [f"https://{host}" for host in ALLOWED_HOSTS]
+CSRF_TRUSTED_ORIGINS = [
+    'https://illustrious-endurance-production.up.railway.app',  # Backend
+    'https://c3ds-frontend-production.up.railway.app',          # Frontend
+]
 
 # Security headers (enforce HTTPS)
 # Disable SSL redirect - Railway handles HTTPS at load balancer level
