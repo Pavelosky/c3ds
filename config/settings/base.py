@@ -195,6 +195,7 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',  # Vite dev server
     'http://127.0.0.1:5173',
+    'https://c3ds-frontend-production.up.railway.app'
 ]
 
 # Allow these headers from React frontend

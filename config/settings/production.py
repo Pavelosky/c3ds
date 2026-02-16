@@ -49,7 +49,10 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 # Default to empty list if not set (will need to be configured after frontend deployment)
 # cors_origins = os.environ.get('CORS_ALLOWED_ORIGINS', '')
 # CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins.split(',') if origin.strip()]
-CORS_ALLOWED_ORIGINS = ["https://c3ds-frontend-production.up.railway.app",]
+CORS_ALLOWED_ORIGINS = ["https://c3ds-frontend-production.up.railway.app",'http://localhost:5173',  # Vite dev server
+    'http://127.0.0.1:5173',]
+CORS_ALLOW_CREDENTIALS = True
+
 CSRF_TRUSTED_ORIGINS = [f"https://{host}" for host in ALLOWED_HOSTS]
 
 # Security headers (enforce HTTPS)
