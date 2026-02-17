@@ -15,18 +15,140 @@ import pytz
 from .models import DeviceMessage
 from .serializers import DeviceMessageListSerializer
 from dateutil import parser as date_parser
+from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 
 from apps.device_management.models import Device, DeviceStatus
 
 
 # Create your views here.
+@extend_schema(
+    operation_id='device_message_submit',
+    summary='Submit a sensor message from a device',
+    description=(
+        'Authenticated endpoint for registered IoT devices to submit sensor data. '
+        'Authentication is performed via X.509 certificate headers — standard session '
+        'or token authentication is not used on this endpoint.\n\n'
+        '**Authentication headers (both required):**\n'
+        '- `X-Device-Certificate`: The device\'s PEM certificate, Base64-encoded.\n'
+        '- `X-Device-Signature`: RSA-PKCS1v15 or ECDSA signature of the raw request body, Base64-encoded.\n\n'
+        '**Server validation order:**\n'
+        '1. Both headers are present\n'
+        '2. Certificate is valid X.509 PEM format\n'
+        '3. Certificate is signed by the C3DS Certificate Authority\n'
+        '4. Certificate is within its validity period\n'
+        '5. Device UUID (from certificate Common Name) exists in the database\n'
+        '6. Device status is not REVOKED\n'
+        '7. Message signature is valid against the request body\n'
+        '8. Request body is valid JSON\n\n'
+        'A successful request stores the message and automatically sets the device status to ACTIVE '
+        'if it was previously PENDING or INACTIVE.'
+    ),
+    request={
+        'application/json': {
+            'type': 'object',
+            'required': ['message_type', 'timestamp', 'data'],
+            'properties': {
+                'message_type': {
+                    'type': 'string',
+                    'maxLength': 50,
+                    'description': 'Category of the message. Recommended values: detection, heartbeat, status, test.',
+                    'example': 'detection',
+                },
+                'timestamp': {
+                    'type': 'string',
+                    'format': 'date-time',
+                    'description': 'ISO 8601 timestamp (UTC) of when the event was observed.',
+                    'example': '2026-02-17T14:30:00Z',
+                },
+                'data': {
+                    'type': 'object',
+                    'description': (
+                        'Arbitrary sensor payload. Any JSON object is accepted. '
+                        'The optional `confidence` key (float 0.0–1.0) is recognised by the dashboard.'
+                    ),
+                    'example': {
+                        'confidence': 0.87,
+                        'frequency_hz': 433920000,
+                        'signal_strength_dbm': -72,
+                    },
+                },
+            },
+        }
+    },
+    responses={
+        200: {
+            'type': 'object',
+            'properties': {
+                'status': {'type': 'string', 'example': 'success'},
+                'saved': {'type': 'boolean', 'example': True},
+                'device_id': {'type': 'string', 'format': 'uuid', 'example': 'e3bf7037-ca57-4928-9476-0e40e8b5d30d'},
+                'timestamp': {'type': 'string', 'format': 'date-time'},
+                'message': {'type': 'string', 'example': 'Message stored successfully.'},
+            },
+        },
+        400: {'description': 'Malformed certificate, signature format, or invalid JSON body.'},
+        401: {'description': 'Missing headers, certificate not signed by CA, or signature mismatch.'},
+        403: {'description': 'Device certificate has been revoked.'},
+        404: {'description': 'Device not found in the database.'},
+        500: {'description': 'Server configuration error.'},
+    },
+    parameters=[
+        OpenApiParameter(
+            name='X-Device-Certificate',
+            location=OpenApiParameter.HEADER,
+            required=True,
+            type=OpenApiTypes.STR,
+            description='Base64-encoded PEM certificate issued by the C3DS Certificate Authority.',
+        ),
+        OpenApiParameter(
+            name='X-Device-Signature',
+            location=OpenApiParameter.HEADER,
+            required=True,
+            type=OpenApiTypes.STR,
+            description=(
+                'Base64-encoded cryptographic signature of the raw request body. '
+                'RSA keys use PKCS#1 v1.5 padding with SHA-256. '
+                'ECDSA keys use SHA-256.'
+            ),
+        ),
+    ],
+    examples=[
+        OpenApiExample(
+            'Detection message',
+            value={
+                'message_type': 'alert',
+                'timestamp': '2026-02-17T14:30:00Z',
+                'data': {
+                    'confidence': 0.87,
+                    'frequency_hz': 433920000,
+                    'signal_strength_dbm': -72,
+                    'duration_ms': 340,
+                },
+            },
+            request_only=True,
+        ),
+        OpenApiExample(
+            'Heartbeat message',
+            value={
+                'message_type': 'heartbeat',
+                'timestamp': '2026-02-17T14:00:00Z',
+                'data': {
+                    'uptime_seconds': 86400,
+                    'battery_percent': 91,
+                },
+            },
+            request_only=True,
+        ),
+    ],
+    tags=['Device Messages'],
+)
 class DeviceMessageView(APIView):
     """
     API endpoint for devices to send authenticated messages.
-    
-    Expected headers:
-    - X-Device-Certificate: Base64-encoded PEM certificate
-    - X-Device-Signature: Base64-encoded signature of message body
+
+    Authentication is certificate-based (X-Device-Certificate + X-Device-Signature headers).
+    See the device integration guide at README.md for full details.
     """
     permission_classes = []  # Disable default authentication - uses certificate auth
     
