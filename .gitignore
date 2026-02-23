@@ -38,3 +38,6 @@ config/db.sqlite3
 staticfiles/
 dist/
 
+scripts/simulate.py
+scripts/simulated_devices.json
+scripts/test_device_request.py

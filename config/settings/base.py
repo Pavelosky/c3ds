@@ -44,12 +44,38 @@ INSTALLED_APPS = [
     'django_filters',
     'drf_spectacular',
 
+    # Third party - Celery Beat scheduler
+    'django_celery_beat',
+
     # custom apps
     'apps.core',
     'apps.device_management',
     'apps.data_processing',
     'apps.dashboard',
+    'apps.anomaly_detection',
 ]
+
+
+# =============================================================================
+# Celery Configuration
+# =============================================================================
+
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+
+# Celery Beat schedule — anomaly analysis runs every 5 minutes
+from celery.schedules import crontab  # noqa: E402
+
+CELERY_BEAT_SCHEDULE = {
+    'run-anomaly-analysis': {
+        'task': 'apps.anomaly_detection.tasks.run_anomaly_analysis',
+        'schedule': 300,  # every 5 minutes (seconds)
+    },
+}
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -68,7 +94,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR.parent / 'c3ds-frontend' / 'dist'],  # React SPA index.html location
+        "DIRS": [],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -129,13 +155,13 @@ LOGIN_REDIRECT_URL = '/'
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"  # Where collectstatic puts files for production
 
-# Include React build output in static files collection
-STATICFILES_DIRS = [
-    BASE_DIR.parent / "c3ds-frontend" / "dist",  # Vite build output 
-]
+# Include React build output in static files collection only if the build exists.
+# Run `pnpm build` in c3ds-frontend/ to generate the dist/ folder.
+_REACT_DIST = BASE_DIR.parent / "c3ds-frontend" / "dist"
+STATICFILES_DIRS = [_REACT_DIST] if _REACT_DIST.exists() else []
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field

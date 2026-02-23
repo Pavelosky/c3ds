@@ -19,6 +19,7 @@ from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParamete
 from drf_spectacular.types import OpenApiTypes
 
 from apps.device_management.models import Device, DeviceStatus
+from apps.anomaly_detection.models import AnomalyFlag, AnomalyType, AnomalySeverity, DeviceIPHistory
 
 
 # Create your views here.
@@ -289,6 +290,8 @@ class DeviceMessageView(APIView):
         try:
             message_data = json.loads(message_body)
         except json.JSONDecodeError:
+            # Malformed message — flag immediately before returning error
+            self._flag_malformed_message(device, 'Message body is not valid JSON')
             return Response(
                 {'error': 'Invalid JSON in message body'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -338,6 +341,19 @@ class DeviceMessageView(APIView):
         except Exception as e:
             print(f'error: Failed to store message: {str(e)}')
         
+        # Check for unknown source IP after successful authentication
+        if client_ip:
+            self._check_unknown_ip(device, client_ip)
+
+        # Check that message has the required fields
+        required_fields = {'message_type', 'timestamp', 'data'}
+        missing = required_fields - set(message_data.keys())
+        if missing:
+            self._flag_malformed_message(
+                device,
+                f"Message is missing required fields: {', '.join(sorted(missing))}"
+            )
+
         # Update device status to ACTIVE if it was PENDING or INACTIVE
         if device.status in [DeviceStatus.PENDING, DeviceStatus.INACTIVE]:
             device.status = DeviceStatus.ACTIVE
@@ -356,6 +372,74 @@ class DeviceMessageView(APIView):
             response_data['message'] = 'Failed to store message.'
 
         return Response(response_data, status=status.HTTP_200_OK)
+
+    # Anomaly detection helpers
+
+    def _check_unknown_ip(self, device, ip_address):
+        """
+        Create an AUTH_UNKNOWN_IP flag if this device has never been seen from
+        this IP address before. Idempotent: only one unresolved flag per device.
+
+        After checking, the IP is recorded in DeviceIPHistory (upsert).
+        """
+        is_known = DeviceIPHistory.objects.filter(
+            device=device,
+            ip_address=ip_address
+        ).exists()
+
+        if not is_known:
+            # Only raise one unresolved flag per device at a time
+            already_flagged = AnomalyFlag.objects.filter(
+                device=device,
+                flag_type=AnomalyType.AUTH_UNKNOWN_IP,
+                resolved_at__isnull=True
+            ).exists()
+
+            if not already_flagged:
+                AnomalyFlag.objects.create(
+                    device=device,
+                    flag_type=AnomalyType.AUTH_UNKNOWN_IP,
+                    severity=AnomalySeverity.HIGH,
+                    explanation=(
+                        f"Device '{device.name}' authenticated from IP address {ip_address}, "
+                        f"which has not been seen before for this device. This may indicate "
+                        f"device relocation, network change, or certificate misuse."
+                    ),
+                    detail={
+                        'new_ip': ip_address,
+                        'device_id': str(device.id),
+                    },
+                )
+
+        # Record the IP
+        DeviceIPHistory.objects.get_or_create(
+            device=device,
+            ip_address=ip_address
+        )
+
+    def _flag_malformed_message(self, device, reason):
+        """
+        Create an AUTH_MALFORMED_MESSAGE flag for a device that sent an unexpected
+        message structure. Idempotent: only one unresolved flag per device.
+        """
+        already_flagged = AnomalyFlag.objects.filter(
+            device=device,
+            flag_type=AnomalyType.AUTH_MALFORMED_MESSAGE,
+            resolved_at__isnull=True
+        ).exists()
+
+        if not already_flagged:
+            AnomalyFlag.objects.create(
+                device=device,
+                flag_type=AnomalyType.AUTH_MALFORMED_MESSAGE,
+                severity=AnomalySeverity.MEDIUM,
+                explanation=(
+                    f"Device '{device.name}' submitted a message that does not conform to the "
+                    f"expected structure. Reason: {reason}. This may indicate a firmware bug "
+                    f"or an attempt to send unexpected data."
+                ),
+                detail={'reason': reason, 'device_id': str(device.id)},
+            )
 
 
 class DeviceMessageListView(generics.ListAPIView):

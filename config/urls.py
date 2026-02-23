@@ -31,10 +31,11 @@ urlpatterns = [
 
     # API URLs (for React frontend)
     path('api/v1/', include([
-        path('dashboard/', include('apps.dashboard.api_urls')),         # NEW FILE
-        path('devices/', include('apps.device_management.api_urls')),  # NEW FILE
-        path('messages/', include('apps.data_processing.api_urls')),   # NEW FILE
-        path('auth/', include('apps.core.api_urls')),                  # NEW FILE
+        path('dashboard/', include('apps.dashboard.api_urls')),
+        path('devices/', include('apps.device_management.api_urls')),
+        path('messages/', include('apps.data_processing.api_urls')),
+        path('auth/', include('apps.core.api_urls')),
+        path('admin/', include('apps.anomaly_detection.api_urls')),    # Admin API
     ])),
 
     # API Documentation
@@ -43,6 +44,7 @@ urlpatterns = [
 
     # SPA Fallback
     # Serves index.html for all routes that DON'T start with api/admin/participant/static
-    # React Router handles client-side routing from here
+    # React Router handles client-side routing from here.
+    # React admin pages use /c3ds-admin/* to avoid collision with Django's /admin/.
     re_path(r'^(?!api|admin|participant|static).*$', TemplateView.as_view(template_name='index.html'), name='react-app'),
 ]

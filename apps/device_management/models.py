@@ -3,6 +3,16 @@ from django.contrib.auth.models import User
 import uuid
 
 
+class AuditEventType(models.TextChoices):
+    DEVICE_REGISTERED = 'DEVICE_REGISTERED', 'Device Registered'
+    STATUS_CHANGED = 'STATUS_CHANGED', 'Status Changed'
+    CERTIFICATE_GENERATED = 'CERTIFICATE_GENERATED', 'Certificate Generated'
+    CERTIFICATE_DOWNLOADED = 'CERTIFICATE_DOWNLOADED', 'Certificate Downloaded'
+    ANOMALY_RAISED = 'ANOMALY_RAISED', 'Anomaly Flag Raised'
+    ANOMALY_RESOLVED = 'ANOMALY_RESOLVED', 'Anomaly Flag Resolved'
+    DEVICE_UPDATED = 'DEVICE_UPDATED', 'Device Details Updated'
+
+
 # Create your models here.
 class DeviceStatus(models.TextChoices):
     ACTIVE = 'ACTIVE', 'Active'         #the device is active and operational
@@ -172,9 +182,67 @@ class Device(models.Model):
         """
         if not self.certificate_generated_at:
             return False
-        
+
         from django.utils import timezone
         from datetime import timedelta
 
         expiry_time = self.certificate_generated_at + timedelta(hours=24)
         return timezone.now() <= expiry_time
+
+
+class DeviceAuditEntry(models.Model):
+    """
+    Immutable chronological history of significant events on a device.
+    The record cannot be edited or deleted (enforced by
+    convention; the model has no update or delete views).
+
+    Design reference:
+    - NIST SP 800-92: Guide to Computer Security Log Management
+    - Immutable audit logs are a core requirement for forensic integrity.
+    """
+    device = models.ForeignKey(
+        Device,
+        on_delete=models.CASCADE,
+        related_name='audit_entries',
+        help_text="Device this entry belongs to"
+    )
+
+    event_type = models.CharField(
+        max_length=30,
+        choices=AuditEventType.choices,
+        help_text="Category of event"
+    )
+
+    description = models.TextField(
+        help_text="Human-readable description of what happened"
+    )
+
+    # Who triggered this event (null = system-triggered)
+    triggered_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_entries',
+        help_text="User who triggered the event (null if triggered automatically)"
+    )
+
+    triggered_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True
+    )
+
+    # Additional structured data (e.g., old/new status for STATUS_CHANGED)
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Structured context for the event"
+    )
+
+    class Meta:
+        ordering = ['-triggered_at']
+        verbose_name = "Device Audit Entry"
+        verbose_name_plural = "Device Audit Entries"
+
+    def __str__(self):
+        return f"{self.device.name} — {self.event_type} ({self.triggered_at:%Y-%m-%d %H:%M})"

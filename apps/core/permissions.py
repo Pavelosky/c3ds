@@ -3,7 +3,24 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
 from django.contrib import messages
+from rest_framework.permissions import BasePermission
 from .models import UserProfile
+
+
+class IsAdminUser(BasePermission):
+    """
+    DRF permission class for admin-only API endpoints.
+
+    Grants access if the user is authenticated AND is_staff or is_superuser.
+    """
+    message = "Administrator access required."
+
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and (request.user.is_staff or request.user.is_superuser)
+        )
 
 
 def participant_required(view_func):

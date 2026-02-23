@@ -13,7 +13,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.http import HttpResponse
 
-from apps.device_management.models import Device, DeviceStatus
+from apps.device_management.models import Device, DeviceStatus, AuditEventType
+from apps.anomaly_detection.audit import log_audit_event
 from apps.device_management.serializers import (
     DeviceListSerializer,
     DeviceDetailSerializer,
@@ -122,15 +123,30 @@ class ParticipantDeviceViewSet(viewsets.ModelViewSet):
             return DeviceUpdateSerializer
         return DeviceRegistrationSerializer
 
+    def perform_update(self, serializer):
+        device = serializer.save()
+        log_audit_event(
+            device=device,
+            event_type=AuditEventType.DEVICE_UPDATED,
+            description=f"Device '{device.name}' details updated by {self.request.user.username}.",
+            triggered_by=self.request.user,
+        )
+
     def perform_create(self, serializer):
         """
         Set the device owner to the current user on creation.
-        
+
         Why: Participants should not be able to specify who owns the device.
         The owner is always the authenticated user making the request.
         This prevents users from creating devices under other accounts.
         """
-        serializer.save(created_by=self.request.user)
+        device = serializer.save(created_by=self.request.user)
+        log_audit_event(
+            device=device,
+            event_type=AuditEventType.DEVICE_REGISTERED,
+            description=f"Device '{device.name}' registered by {self.request.user.username}.",
+            triggered_by=self.request.user,
+        )
 
 
     def destroy(self, request, *args, **kwargs):
@@ -144,9 +160,16 @@ class ParticipantDeviceViewSet(viewsets.ModelViewSet):
         - Returns 200 with device data (not 204) so frontend can show confirmation
         """
         device = self.get_object()
+        old_status = device.status
         device.status = DeviceStatus.REVOKED
         device.save()
-        
+        log_audit_event(
+            device=device,
+            event_type=AuditEventType.STATUS_CHANGED,
+            description=f"Device status changed from {old_status} to REVOKED by {request.user.username}.",
+            triggered_by=request.user,
+            metadata={'old_status': old_status, 'new_status': DeviceStatus.REVOKED},
+        )
         serializer = DeviceDetailSerializer(device)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -183,6 +206,14 @@ class ParticipantDeviceViewSet(viewsets.ModelViewSet):
             device.certificate_generated_at = timezone.now()
             device.save()
             
+            log_audit_event(
+                device=device,
+                event_type=AuditEventType.CERTIFICATE_GENERATED,
+                description=f"X.509 certificate generated for device '{device.name}' (algorithm: {device.certificate_algorithm}).",
+                triggered_by=request.user,
+                metadata={'certificate_serial': serial_hex, 'algorithm': device.certificate_algorithm},
+            )
+
             # Return certificate metadata (not the actual keys)
             return Response({
                 'message': 'Certificate generated successfully.',
@@ -190,7 +221,7 @@ class ParticipantDeviceViewSet(viewsets.ModelViewSet):
                 'certificate_expiry': expiry_date.isoformat(),
                 'download_expires_at': (timezone.now() + timedelta(hours=24)).isoformat(),
             }, status=status.HTTP_201_CREATED)
-            
+
         except Exception as e:
             return Response(
                 {'error': f'Failed to generate certificate: {str(e)}'},
