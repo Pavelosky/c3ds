@@ -13,28 +13,53 @@ from apps.device_management.models import Device, DeviceType
 from apps.core.serializers import UserSerializer
 
 
-class DeviceListSerializer(serializers.ModelSerializer):
+class PublicDeviceListSerializer(serializers.ModelSerializer):
     """
-    Serializer for device list view.
-    Minimal fields for performance in tables/cards.
+    Minimal serializer for the public device list endpoint.
+    Returns only fields needed for map rendering and public display.
 
     Used by:
     - GET /api/v1/devices/public/
-    - GET /api/v1/devices/participant/
 
-    Example output:
-    {
-        "id": "e3bf7037-ca57-4928-9476-0e40e8b5d30d",
-        "name": "ESP32-Sensor-01",
-        "device_type": {"id": 1, "name": "ESP32"},
-        "status": "ACTIVE",
-        "status_display": "Active",
-        "certificate_algorithm": "ECDSA_P256",
-        "certificate_expiry": "2025-01-14T10:00:00Z",
-        "created_at": "2024-01-14T10:00:00Z",
-        "updated_at": "2024-01-14T10:00:00Z",
-        "message_count": 42
-    }
+    Intentionally excludes certificate fields and description to keep
+    the public payload small.
+    """
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    message_count = serializers.SerializerMethodField()
+    device_type = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Device
+        fields = [
+            'id',
+            'name',
+            'latitude',
+            'longitude',
+            'status',
+            'status_display',
+            'device_type',
+            'message_count',
+            'created_at',
+        ]
+
+    def get_message_count(self, obj):
+        if hasattr(obj, 'messages_count'):
+            return obj.messages_count
+        return obj.messages.count()
+
+    def get_device_type(self, obj):
+        if obj.device_type:
+            return {'id': obj.device_type.id, 'name': obj.device_type.name}
+        return None
+
+
+class DeviceListSerializer(serializers.ModelSerializer):
+    """
+    Serializer for participant device list view.
+    Includes certificate fields needed by the participant dashboard.
+
+    Used by:
+    - GET /api/v1/devices/participant/
     """
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     message_count = serializers.SerializerMethodField()

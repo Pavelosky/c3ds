@@ -12,10 +12,12 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.http import HttpResponse
+from django.db.models import Count
 
 from apps.device_management.models import Device, DeviceStatus, AuditEventType
 from apps.anomaly_detection.audit import log_audit_event
 from apps.device_management.serializers import (
+    PublicDeviceListSerializer,
     DeviceListSerializer,
     DeviceDetailSerializer,
     DeviceRegistrationSerializer,
@@ -62,7 +64,7 @@ class PublicDeviceViewSet(viewsets.ReadOnlyModelViewSet):
     - Filtering by status, device_type
     - Searching by name, location
     - Ordering by created_at, updated_at, name
-    - Pagination (25 per page)
+    - No pagination (returns all devices)
     
     Examples:
     - /api/v1/devices/public/?status=ACTIVE
@@ -70,8 +72,13 @@ class PublicDeviceViewSet(viewsets.ReadOnlyModelViewSet):
     - /api/v1/devices/public/?ordering=-created_at
     """
     permission_classes = [AllowAny]
-    queryset = Device.objects.select_related('created_by').all()
-    
+    pagination_class = None
+    queryset = (
+        Device.objects
+        .select_related('device_type')
+        .annotate(messages_count=Count('messages'))
+    )
+
     # Enable filtering, searching, ordering
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status', 'device_type']
@@ -80,11 +87,11 @@ class PublicDeviceViewSet(viewsets.ReadOnlyModelViewSet):
     ordering = ['-created_at']  # Default: newest first
 
     def get_serializer_class(self):
-        """Use detailed serializer for single device, list serializer for list."""
+        """Use detailed serializer for single device, minimal public serializer for list."""
         if self.action == 'retrieve':
             return DeviceDetailSerializer
-        return DeviceListSerializer
-    
+        return PublicDeviceListSerializer
+
 class ParticipantDeviceViewSet(viewsets.ModelViewSet):
     """
     CRUD operations for participant's own devices.
