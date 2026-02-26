@@ -377,45 +377,62 @@ class DeviceMessageView(APIView):
 
     def _check_unknown_ip(self, device, ip_address):
         """
-        Create an AUTH_UNKNOWN_IP flag if this device has never been seen from
-        this IP address before. Idempotent: only one unresolved flag per device.
+        Flag when a device is actively alternating between multiple IP addresses
+        within a short window (IP_ROTATION_WINDOW_MINUTES). A single IP change is
+        normal (DHCP lease renewal, home router reboot); simultaneous use of 2+
+        distinct IPs is not and may indicate proxying or certificate misuse.
 
-        After checking, the IP is recorded in DeviceIPHistory (upsert).
+        The current IP is always recorded / its last_seen timestamp updated.
         """
-        is_known = DeviceIPHistory.objects.filter(
-            device=device,
-            ip_address=ip_address
-        ).exists()
+        IP_ROTATION_WINDOW_MINUTES = 30
 
-        if not is_known:
-            # Only raise one unresolved flag per device at a time
+        # Upsert: record this IP and refresh its last_seen timestamp.
+        entry, created = DeviceIPHistory.objects.get_or_create(
+            device=device,
+            ip_address=ip_address,
+        )
+        if not created:
+            # Touch last_seen so the rotation window check is accurate.
+            entry.save()
+
+        # Count how many distinct IPs this device has been seen from recently.
+        window_start = timezone.now() - timedelta(minutes=IP_ROTATION_WINDOW_MINUTES)
+        recent_ip_count = DeviceIPHistory.objects.filter(
+            device=device,
+            last_seen__gte=window_start,
+        ).count()
+
+        if recent_ip_count >= 2:
             already_flagged = AnomalyFlag.objects.filter(
                 device=device,
                 flag_type=AnomalyType.AUTH_UNKNOWN_IP,
-                resolved_at__isnull=True
+                resolved_at__isnull=True,
             ).exists()
 
             if not already_flagged:
+                recent_ips = list(
+                    DeviceIPHistory.objects.filter(
+                        device=device,
+                        last_seen__gte=window_start,
+                    ).values_list('ip_address', flat=True)
+                )
                 AnomalyFlag.objects.create(
                     device=device,
                     flag_type=AnomalyType.AUTH_UNKNOWN_IP,
                     severity=AnomalySeverity.HIGH,
                     explanation=(
-                        f"Device '{device.name}' authenticated from IP address {ip_address}, "
-                        f"which has not been seen before for this device. This may indicate "
-                        f"device relocation, network change, or certificate misuse."
+                        f"Device '{device.name}' is alternating between "
+                        f"{recent_ip_count} IP addresses within a "
+                        f"{IP_ROTATION_WINDOW_MINUTES}-minute window. "
+                        f"This may indicate proxying or certificate misuse."
                     ),
                     detail={
-                        'new_ip': ip_address,
+                        'current_ip': ip_address,
+                        'recent_ips': recent_ips,
+                        'window_minutes': IP_ROTATION_WINDOW_MINUTES,
                         'device_id': str(device.id),
                     },
                 )
-
-        # Record the IP
-        DeviceIPHistory.objects.get_or_create(
-            device=device,
-            ip_address=ip_address
-        )
 
     def _flag_malformed_message(self, device, reason):
         """
@@ -451,10 +468,10 @@ class DeviceMessageListView(generics.ListAPIView):
     Query Parameters:
     - message_type: Filter by message type (e.g., "alert", "heartbeat")
     - time_window: Filter by time window ("1h", "24h", "7d", "all")
-    - limit: Number of messages to return (default: 50, max: 200)
+    - limit: Number of messages to return (default: 50, max: 1000)
 
     Example:
-    GET /api/v1/messages/?message_type=alert&time_window=24h&limit=50
+    GET /api/v1/messages/?message_type=alert&time_window=24h&limit=1000
 
     Returns messages ordered by received_at (newest first).
     """
@@ -466,7 +483,7 @@ class DeviceMessageListView(generics.ListAPIView):
         """
         Filter messages based on query parameters.
         """
-        queryset = DeviceMessage.objects.select_related('device').all()
+        queryset = DeviceMessage.objects.select_related('device').filter(device__status='ACTIVE') # show only active devices
 
         # Filter by message type
         message_type = self.request.query_params.get('message_type', None)
@@ -488,11 +505,11 @@ class DeviceMessageListView(generics.ListAPIView):
                 start_time = now - time_mapping[time_window]
                 queryset = queryset.filter(recieved_at__gte=start_time)
 
-        # Limit results (default: 50, max: 200)
-        limit = self.request.query_params.get('limit', 50)
+        # Limit results (default: 50, max: 1000)
+        limit = self.request.query_params.get('limit', 1000)
         try:
-            limit = min(int(limit), 200)
+            limit = min(int(limit), 1000)
         except (ValueError, TypeError):
-            limit = 50
+            limit = 1000
 
         return queryset.order_by('-recieved_at')[:limit]

@@ -49,6 +49,7 @@ class AnomalyFlagViewSet(viewsets.ReadOnlyModelViewSet):
     """
     permission_classes = [IsAdminUser]
     serializer_class = AnomalyFlagSerializer
+    pagination_class = None  # Return all flags; table is scrollable on the frontend
 
     def get_queryset(self):
         qs = AnomalyFlag.objects.select_related('device', 'resolved_by')
