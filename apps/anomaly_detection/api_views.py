@@ -15,18 +15,22 @@ Features covered:
 - US-18: Device audit trail
 """
 import math
+import psutil
 from datetime import timedelta
 
 from django.utils import timezone
+from django.db import connections
 from django.db.models import Count
+from django.db.models.functions import TruncMinute, TruncHour, TruncDay
 from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.permissions import IsAdminUser
-from apps.device_management.models import Device, DeviceAuditEntry
+from apps.device_management.models import Device, DeviceStatus, DeviceAuditEntry, AuditEventType
 from apps.data_processing.models import DeviceMessage
+from apps.anomaly_detection.audit import log_audit_event
 
 from .models import AnomalyFlag, AnomalyType, Incident, IncidentNote
 from .serializers import (
@@ -555,3 +559,184 @@ class DeviceAuditTrailView(generics.ListAPIView):
             qs = qs.filter(event_type=event_type)
 
         return qs
+
+
+class AdminDeviceListView(APIView):
+    """
+    GET /api/v1/admin/devices/
+    Returns all devices with last_message timestamp. Admin only.
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        devices = Device.objects.select_related('device_type').prefetch_related('messages').all()
+        data = []
+        for device in devices:
+            last_msg = device.messages.order_by('-recieved_at').first()
+            data.append({
+                'id': str(device.id),
+                'name': device.name,
+                'status': device.status,
+                'device_type': device.device_type.name if device.device_type else None,
+                'latitude': str(device.latitude) if device.latitude else None,
+                'longitude': str(device.longitude) if device.longitude else None,
+                'last_message': last_msg.recieved_at.isoformat() if last_msg else None,
+                'updated_at': device.updated_at.isoformat(),
+            })
+        return Response(data)
+
+
+class AdminDeviceSetStatusView(APIView):
+    """
+    POST /api/v1/admin/devices/{device_id}/set-status/
+    Body: { "status": "INACTIVE" }
+    Allowed transitions: ACTIVE <-> INACTIVE, any -> REVOKED.
+    """
+    permission_classes = [IsAdminUser]
+
+    ALLOWED_STATUSES = {DeviceStatus.ACTIVE, DeviceStatus.INACTIVE, DeviceStatus.REVOKED}
+
+    def post(self, request, device_id):
+        try:
+            device = Device.objects.get(id=device_id)
+        except Device.DoesNotExist:
+            return Response({'error': 'Device not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        new_status = request.data.get('status', '').upper()
+        if new_status not in self.ALLOWED_STATUSES:
+            return Response(
+                {'error': f'Invalid status. Allowed: {", ".join(self.ALLOWED_STATUSES)}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        old_status = device.status
+        device.status = new_status
+        device.save()
+
+        log_audit_event(
+            device=device,
+            event_type=AuditEventType.STATUS_CHANGED,
+            description=f"Admin '{request.user.username}' changed status from {old_status} to {new_status}.",
+            triggered_by=request.user,
+            metadata={'old_status': old_status, 'new_status': new_status},
+        )
+
+        return Response({'id': str(device.id), 'status': device.status})
+
+
+class MessageRateView(APIView):
+    """
+    GET /api/v1/admin/messages/rate/
+    Returns message counts grouped by time bucket and message_type.
+
+    Query params:
+    - start: ISO datetime (default: 24h ago)
+    - end:   ISO datetime (default: now)
+    - bucket: minute | hour | day (default: hour)
+    """
+    permission_classes = [IsAdminUser]
+
+    TRUNC_MAP = {
+        'minute': TruncMinute,
+        'hour': TruncHour,
+        'day': TruncDay,
+    }
+
+    def get(self, request):
+        now = timezone.now()
+        try:
+            start = timezone.datetime.fromisoformat(request.query_params['start']) if 'start' in request.query_params else now - timedelta(hours=24)
+            end = timezone.datetime.fromisoformat(request.query_params['end']) if 'end' in request.query_params else now
+        except ValueError:
+            return Response({'error': 'Invalid datetime format. Use ISO 8601.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Enforce max 1-month span
+        if (end - start).days > 31:
+            return Response({'error': 'Date range cannot exceed 31 days.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        bucket_param = request.query_params.get('bucket', 'hour')
+        TruncFn = self.TRUNC_MAP.get(bucket_param)
+        if not TruncFn:
+            return Response({'error': 'bucket must be minute, hour, or day.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Query: count per (bucket, message_type) — only returns non-empty buckets
+        rows = (
+            DeviceMessage.objects
+            .filter(recieved_at__gte=start, recieved_at__lte=end)
+            .annotate(bucket=TruncFn('recieved_at'))
+            .values('bucket', 'message_type')
+            .annotate(count=Count('id'))
+            .order_by('bucket')
+        )
+
+        # Collect all message types seen and build a sparse lookup
+        types_seen = set()
+        sparse = {}  # { bucket_iso -> { message_type -> count } }
+        for row in rows:
+            # Truncation returns a datetime; make it UTC-aware if naive
+            bucket_dt = row['bucket']
+            if timezone.is_naive(bucket_dt):
+                bucket_dt = timezone.make_aware(bucket_dt, timezone.utc)
+            key = bucket_dt.isoformat()
+            sparse.setdefault(key, {})
+            sparse[key][row['message_type']] = row['count']
+            types_seen.add(row['message_type'])
+
+        # Generate the complete set of expected bucket timestamps so that
+        # every time slot in the range is represented, even if count is 0.
+        step = {
+            'minute': timedelta(minutes=1),
+            'hour': timedelta(hours=1),
+            'day': timedelta(days=1),
+        }[bucket_param]
+
+        # Floor the start to the bucket boundary
+        if bucket_param == 'day':
+            cursor = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif bucket_param == 'hour':
+            cursor = start.replace(minute=0, second=0, microsecond=0)
+        else:  # minute
+            cursor = start.replace(second=0, microsecond=0)
+
+        all_types = sorted(types_seen)
+        result = []
+        while cursor <= end:
+            key = cursor.isoformat()
+            row = {'bucket': key}
+            counts = sparse.get(key, {})
+            for t in all_types:
+                row[t] = counts.get(t, 0)
+            result.append(row)
+            cursor += step
+
+        return Response({'data': result, 'message_types': all_types})
+
+
+class SystemHealthView(APIView):
+    """
+    GET /api/v1/admin/system/health/
+    Returns current server resource usage. Admin only.
+    Refreshed on each request — no caching.
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        cpu = psutil.cpu_percent(interval=0.1)
+        ram = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+
+        # Count open Django DB connections
+        db_connections = sum(
+            len(conn.queries) for conn in connections.all()
+        ) if hasattr(connections, 'all') else 0
+
+        return Response({
+            'cpu_percent': cpu,
+            'ram_percent': ram.percent,
+            'ram_used_gb': round(ram.used / 1024 ** 3, 2),
+            'ram_total_gb': round(ram.total / 1024 ** 3, 2),
+            'disk_percent': disk.percent,
+            'disk_used_gb': round(disk.used / 1024 ** 3, 2),
+            'disk_total_gb': round(disk.total / 1024 ** 3, 2),
+            'db_connections': len(connections.all()),
+        })

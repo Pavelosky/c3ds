@@ -14,6 +14,10 @@ from .api_views import (
     DetectionHeatmapView,
     DeviceComparisonView,
     DeviceAuditTrailView,
+    AdminDeviceListView,
+    AdminDeviceSetStatusView,
+    MessageRateView,
+    SystemHealthView,
 )
 
 router = DefaultRouter()
@@ -28,4 +32,8 @@ urlpatterns = [
     path('heatmap/', DetectionHeatmapView.as_view(), name='detection-heatmap'),
     path('devices/compare/', DeviceComparisonView.as_view(), name='device-compare'),
     path('devices/<uuid:device_id>/audit/', DeviceAuditTrailView.as_view(), name='device-audit'),
+    path('devices/', AdminDeviceListView.as_view(), name='admin-device-list'),
+    path('devices/<uuid:device_id>/set-status/', AdminDeviceSetStatusView.as_view(), name='admin-device-set-status'),
+    path('messages/rate/', MessageRateView.as_view(), name='message-rate'),
+    path('system/health/', SystemHealthView.as_view(), name='system-health'),
 ]
