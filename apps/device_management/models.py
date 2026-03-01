@@ -11,6 +11,8 @@ class AuditEventType(models.TextChoices):
     ANOMALY_RAISED = 'ANOMALY_RAISED', 'Anomaly Flag Raised'
     ANOMALY_RESOLVED = 'ANOMALY_RESOLVED', 'Anomaly Flag Resolved'
     DEVICE_UPDATED = 'DEVICE_UPDATED', 'Device Details Updated'
+    COMMAND_DISPATCHED = 'COMMAND_DISPATCHED', 'Command Dispatched'
+    COMMAND_ACKNOWLEDGED = 'COMMAND_ACKNOWLEDGED', 'Command Acknowledged'
 
 
 # Create your models here.

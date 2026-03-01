@@ -14,6 +14,10 @@
 static unsigned long lastHeartbeatTime = 0;
 static bool messagingReady = false;
 
+// Runtime-mutable config (overrides compile-time constants via SET_INTERVAL / SET_THRESHOLD)
+static unsigned long heartbeatIntervalMs  = HEARTBEAT_INTERVAL;
+static float         detectionThresholdCm = DETECTION_THRESHOLD_CM;
+
 // ============================================================================
 // INTERNAL HELPER FUNCTIONS
 // ============================================================================
@@ -165,6 +169,122 @@ static void handleNetworkError(int errorCode) {
 
 
 /**
+ * @brief POST an acknowledgement for a delivered command to ACK_URL.
+ *
+ * Uses the same certificate + ECDSA-P256 signing as the main message endpoint.
+ * Fire-and-forget: failure is logged but does not block the main loop.
+ *
+ * @param commandId UUID string of the command being acknowledged
+ * @param ackStatus "ok" or "error"
+ * @param detail    Human-readable detail string (may be empty)
+ */
+static void sendAck(const char* commandId, const char* ackStatus, const char* detail) {
+    // Build the JSON body
+    StaticJsonDocument<256> doc;
+    doc["command_id"] = commandId;
+    doc["status"]     = ackStatus;
+    doc["detail"]     = detail;
+    String body;
+    serializeJson(doc, body);
+
+    // Sign the body
+    String sig = signMessage(body);
+    if (sig.length() == 0) {
+        Serial.println("[CMD] Failed to sign ack — skipping");
+        return;
+    }
+
+    WiFiClient client;
+    HTTPClient http;
+    if (!http.begin(client, ACK_URL)) {
+        Serial.println("[CMD] Failed to begin ack HTTP connection");
+        return;
+    }
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("X-Device-Certificate", DEVICE_CERTIFICATE_B64);
+    http.addHeader("X-Device-Signature", sig);
+    http.setTimeout(HTTP_TIMEOUT);
+
+    int code = http.POST(body);
+    if (code > 0) {
+        Serial.printf("[CMD] Ack sent — HTTP %d\n", code);
+    } else {
+        Serial.printf("[CMD] Ack failed — error %d\n", code);
+    }
+    http.end();
+}
+
+
+/**
+ * @brief Parse the `commands` array from a server response and execute each command.
+ *
+ * Supported commands:
+ *   SET_INTERVAL  {"seconds": N}  — changes heartbeatIntervalMs
+ *   SET_THRESHOLD {"cm": N}       — changes detectionThresholdCm
+ *   REBOOT        {}              — calls ESP.restart() after sending ack
+ *
+ * Each executed command is acknowledged via sendAck().
+ *
+ * @param responseBody Raw JSON string returned by the server
+ */
+static void processServerCommands(const String& responseBody) {
+    StaticJsonDocument<1024> doc;
+    DeserializationError err = deserializeJson(doc, responseBody);
+    if (err != DeserializationError::Ok) {
+        Serial.println("[CMD] Failed to parse response JSON");
+        return;
+    }
+
+    JsonArray commands = doc["commands"].as<JsonArray>();
+    if (commands.isNull() || commands.size() == 0) {
+        return;  // No commands — normal case
+    }
+
+    Serial.printf("[CMD] %u command(s) received\n", (unsigned)commands.size());
+
+    for (JsonObject cmd : commands) {
+        const char* action = cmd["action"] | "";
+        const char* id     = cmd["id"]     | "";
+
+        Serial.printf("[CMD] Executing: %s (id=%s)\n", action, id);
+
+        if (strcmp(action, "SET_INTERVAL") == 0) {
+            unsigned long seconds = cmd["params"]["seconds"] | 0UL;
+            if (seconds > 0) {
+                heartbeatIntervalMs = seconds * 1000UL;
+                Serial.printf("[CMD] SET_INTERVAL -> %lu s\n", seconds);
+                sendAck(id, "ok", "heartbeat interval updated");
+            } else {
+                Serial.println("[CMD] SET_INTERVAL: invalid seconds value");
+                sendAck(id, "error", "invalid seconds value");
+            }
+
+        } else if (strcmp(action, "SET_THRESHOLD") == 0) {
+            float cm = cmd["params"]["cm"] | 0.0f;
+            if (cm > 0.0f) {
+                detectionThresholdCm = cm;
+                Serial.printf("[CMD] SET_THRESHOLD -> %.1f cm\n", cm);
+                sendAck(id, "ok", "detection threshold updated");
+            } else {
+                Serial.println("[CMD] SET_THRESHOLD: invalid cm value");
+                sendAck(id, "error", "invalid cm value");
+            }
+
+        } else if (strcmp(action, "REBOOT") == 0) {
+            Serial.println("[CMD] REBOOT — sending ack then restarting");
+            sendAck(id, "ok", "rebooting");
+            delay(500);
+            ESP.restart();
+
+        } else {
+            Serial.printf("[CMD] Unknown action: %s\n", action);
+            sendAck(id, "error", "unknown action");
+        }
+    }
+}
+
+
+/**
  * Send HTTP POST request with signed message
  *
  * @param payload JSON message payload
@@ -230,6 +350,7 @@ static bool sendHTTPRequest(const String& payload, const String& signature) {
         // Handle response based on status code category
         if (httpResponseCode >= 200 && httpResponseCode < 300) {
             success = handleHTTPSuccess(httpResponseCode);
+            processServerCommands(response);
         } else if (httpResponseCode >= 400 && httpResponseCode < 500) {
             handleHTTPClientError(httpResponseCode);
         } else if (httpResponseCode >= 500) {
@@ -354,7 +475,15 @@ bool sendAlert(float distance, unsigned long durationSeconds, const String& firs
 }
 
 bool isHeartbeatDue() {
-    return (millis() - lastHeartbeatTime) >= HEARTBEAT_INTERVAL;
+    return (millis() - lastHeartbeatTime) >= heartbeatIntervalMs;
+}
+
+unsigned long getHeartbeatInterval() {
+    return heartbeatIntervalMs;
+}
+
+float getDetectionThreshold() {
+    return detectionThresholdCm;
 }
 
 unsigned long getLastHeartbeatTime() {

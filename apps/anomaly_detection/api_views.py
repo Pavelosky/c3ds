@@ -32,7 +32,7 @@ from apps.device_management.models import Device, DeviceStatus, DeviceAuditEntry
 from apps.data_processing.models import DeviceMessage
 from apps.anomaly_detection.audit import log_audit_event
 
-from .models import AnomalyFlag, AnomalyType, Incident, IncidentNote
+from .models import AnomalyFlag, AnomalyType, Incident, IncidentNote, DeviceCommand, CommandStatus
 from .serializers import (
     AnomalyFlagSerializer,
     AnomalySummarySerializer,
@@ -40,6 +40,7 @@ from .serializers import (
     IncidentDetailSerializer,
     IncidentNoteSerializer,
     DeviceAuditEntrySerializer,
+    DeviceCommandSerializer,
 )
 
 
@@ -740,3 +741,102 @@ class SystemHealthView(APIView):
             'disk_total_gb': round(disk.total / 1024 ** 3, 2),
             'db_connections': len(connections.all()),
         })
+
+
+class DeviceCommandView(APIView):
+    """
+    POST /api/v1/admin/devices/{device_id}/commands/
+        Dispatch a command to a device.
+        Body: { "action": "SET_INTERVAL", "params": {"seconds": 60}, "expires_in_minutes": 60 }
+        expires_in_minutes is optional (null = never expires).
+
+    GET /api/v1/admin/devices/{device_id}/commands/
+        List all commands for a specific device (most recent first).
+        Optional ?status= filter.
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, device_id):
+        try:
+            device = Device.objects.get(id=device_id)
+        except Device.DoesNotExist:
+            return Response({'error': 'Device not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        qs = DeviceCommand.objects.filter(device=device).select_related('issued_by', 'device')
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter.upper())
+
+        serializer = DeviceCommandSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, device_id):
+        try:
+            device = Device.objects.get(id=device_id)
+        except Device.DoesNotExist:
+            return Response({'error': 'Device not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        action_value = request.data.get('action', '').upper()
+        valid_actions = {'SET_INTERVAL', 'SET_THRESHOLD', 'REBOOT'}
+        if action_value not in valid_actions:
+            return Response(
+                {'error': f'Invalid action. Choose from: {", ".join(valid_actions)}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        params = request.data.get('params', {})
+        if not isinstance(params, dict):
+            return Response({'error': 'params must be a JSON object.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        expires_at = None
+        expires_in = request.data.get('expires_in_minutes')
+        if expires_in is not None:
+            try:
+                expires_at = timezone.now() + timedelta(minutes=int(expires_in))
+            except (TypeError, ValueError):
+                return Response({'error': 'expires_in_minutes must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        command = DeviceCommand.objects.create(
+            device=device,
+            action=action_value,
+            params=params,
+            issued_by=request.user,
+            expires_at=expires_at,
+        )
+
+        log_audit_event(
+            device=device,
+            event_type=AuditEventType.COMMAND_DISPATCHED,
+            description=f"Admin '{request.user.username}' dispatched {action_value} command.",
+            triggered_by=request.user,
+            metadata={'command_id': str(command.id), 'action': action_value, 'params': params},
+        )
+
+        serializer = DeviceCommandSerializer(command)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class CommandQueueView(APIView):
+    """
+    GET /api/v1/admin/commands/
+
+    System-wide command queue across all devices (most recent first).
+    Optional query params:
+    - status: PENDING | DELIVERED | ACKNOWLEDGED | EXPIRED
+    - device_id: filter by device UUID
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        qs = DeviceCommand.objects.select_related('device', 'issued_by').all()
+
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter.upper())
+
+        device_id = request.query_params.get('device_id')
+        if device_id:
+            qs = qs.filter(device__id=device_id)
+
+        serializer = DeviceCommandSerializer(qs, many=True)
+        return Response(serializer.data)

@@ -18,6 +18,8 @@ from .api_views import (
     AdminDeviceSetStatusView,
     MessageRateView,
     SystemHealthView,
+    DeviceCommandView,
+    CommandQueueView,
 )
 
 router = DefaultRouter()
@@ -34,6 +36,8 @@ urlpatterns = [
     path('devices/<uuid:device_id>/audit/', DeviceAuditTrailView.as_view(), name='device-audit'),
     path('devices/', AdminDeviceListView.as_view(), name='admin-device-list'),
     path('devices/<uuid:device_id>/set-status/', AdminDeviceSetStatusView.as_view(), name='admin-device-set-status'),
+    path('devices/<uuid:device_id>/commands/', DeviceCommandView.as_view(), name='device-commands'),
+    path('commands/', CommandQueueView.as_view(), name='command-queue'),
     path('messages/rate/', MessageRateView.as_view(), name='message-rate'),
     path('system/health/', SystemHealthView.as_view(), name='system-health'),
 ]

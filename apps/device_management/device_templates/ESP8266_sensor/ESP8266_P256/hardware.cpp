@@ -1,6 +1,7 @@
 #include "config.h"
 #include "hardware.h"
-#include "network.h"  // For getCurrentTimestamp()
+#include "messaging.h"  // For getDetectionThreshold()
+#include "network.h"    // For getCurrentTimestamp()
 
 // ============================================================================
 // INTERNAL STATE VARIABLES
@@ -70,12 +71,13 @@ static float measureDistance() {
  * @return true if object detected, false otherwise
  */
 static bool isDistanceInDetectionRange(float distance) {
+    float threshold = getDetectionThreshold();
     if (detectionActive) {
         // Currently detecting - use upper threshold (hysteresis)
-        return distance <= (DETECTION_THRESHOLD_CM + DETECTION_HYSTERESIS_CM);
+        return distance <= (threshold + DETECTION_HYSTERESIS_CM);
     } else {
         // Not detecting - use lower threshold
-        return distance <= DETECTION_THRESHOLD_CM;
+        return distance <= threshold;
     }
 }
 

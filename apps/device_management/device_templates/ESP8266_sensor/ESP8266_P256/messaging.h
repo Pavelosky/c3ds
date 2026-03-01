@@ -58,9 +58,25 @@ bool isHeartbeatDue();
 
 /**
  * Get the last heartbeat time
- * 
+ *
  * @return Time in milliseconds when last heartbeat was sent
  */
 unsigned long getLastHeartbeatTime();
+
+/**
+ * Get the current (runtime-configurable) heartbeat interval.
+ * Updated by SET_INTERVAL commands from the server.
+ *
+ * @return Interval in milliseconds
+ */
+unsigned long getHeartbeatInterval();
+
+/**
+ * Get the current (runtime-configurable) detection threshold.
+ * Updated by SET_THRESHOLD commands from the server.
+ *
+ * @return Distance threshold in centimetres
+ */
+float getDetectionThreshold();
 
 #endif // MESSAGING_H

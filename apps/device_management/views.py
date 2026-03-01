@@ -140,6 +140,7 @@ static const char* WIFI_SSID = "{wifi_ssid}";
 static const char* WIFI_PASSWORD = "{wifi_password}";
 
 static const char* SERVER_URL = "http://192.168.1.102:8000/api/device/message/";
+static const char* ACK_URL    = "http://192.168.1.102:8000/api/device/ack/";
 
 // NTP (Network Time Protocol) for timestamps
 static const char* NTP_SERVER = "pool.ntp.org";

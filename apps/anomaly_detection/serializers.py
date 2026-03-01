@@ -4,7 +4,7 @@ Serializers for anomaly detection and incident management API endpoints.
 from rest_framework import serializers
 from django.contrib.auth.models import User
 
-from .models import AnomalyFlag, Incident, IncidentNote
+from .models import AnomalyFlag, Incident, IncidentNote, DeviceCommand, CommandAction
 from apps.device_management.models import DeviceAuditEntry
 from apps.data_processing.models import DeviceMessage
 
@@ -136,3 +136,23 @@ class DeviceAuditEntrySerializer(serializers.ModelSerializer):
             'triggered_at', 'metadata',
         ]
         read_only_fields = fields
+
+
+class DeviceCommandSerializer(serializers.ModelSerializer):
+    device_name = serializers.CharField(source='device.name', read_only=True)
+    issued_by_username = serializers.CharField(
+        source='issued_by.username', read_only=True, default=None
+    )
+    is_expired = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = DeviceCommand
+        fields = [
+            'id', 'device', 'device_name', 'action', 'params', 'status',
+            'issued_by', 'issued_by_username', 'is_expired',
+            'created_at', 'delivered_at', 'acknowledged_at', 'expires_at',
+        ]
+        read_only_fields = [
+            'id', 'status', 'device_name', 'issued_by', 'issued_by_username',
+            'is_expired', 'created_at', 'delivered_at', 'acknowledged_at',
+        ]

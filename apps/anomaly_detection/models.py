@@ -1,3 +1,5 @@
+import uuid
+from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import User
 
@@ -252,3 +254,99 @@ class IncidentNote(models.Model):
 
     def __str__(self):
         return f"Note on '{self.incident.title}' by {self.author} ({self.created_at:%Y-%m-%d %H:%M})"
+
+
+# ============================================================================
+# Command Queue
+# ============================================================================
+
+class CommandAction(models.TextChoices):
+    SET_INTERVAL  = 'SET_INTERVAL',  'Change reporting interval'
+    SET_THRESHOLD = 'SET_THRESHOLD', 'Change detection threshold'
+    REBOOT        = 'REBOOT',        'Reboot device'
+
+
+class CommandStatus(models.TextChoices):
+    PENDING      = 'PENDING',      'Pending delivery'
+    DELIVERED    = 'DELIVERED',    'Delivered to device'
+    ACKNOWLEDGED = 'ACKNOWLEDGED', 'Acknowledged by device'
+    EXPIRED      = 'EXPIRED',      'Expired undelivered'
+
+
+class DeviceCommand(models.Model):
+    """
+    A command queued for delivery to an IoT device.
+
+    Commands are delivered piggyback in the JSON response to the device's next
+    incoming message (POST /api/v1/device/message/). The device parses the
+    `commands` array, executes each command, and POSTs an acknowledgement to
+    /api/v1/device/ack/.
+
+    Supported actions:
+    - SET_INTERVAL: change the heartbeat reporting interval (params: {"seconds": N})
+    - SET_THRESHOLD: change the detection distance threshold (params: {"cm": N})
+    - REBOOT: trigger a device reboot (params: {})
+
+    Design reference:
+    - Command pattern for remote device management
+    - Polling delivery model chosen because embedded devices cannot receive
+      push connections (ESP8266 acts as HTTP client only) and ar typically behind a firewall
+    """
+    id              = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    device          = models.ForeignKey(
+        'device_management.Device',
+        on_delete=models.CASCADE,
+        related_name='commands',
+        help_text="Target device for this command"
+    )
+    action          = models.CharField(
+        max_length=32,
+        choices=CommandAction.choices,
+        help_text="Command action to execute on the device"
+    )
+    params          = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Action parameters (e.g. {'seconds': 60} for SET_INTERVAL)"
+    )
+    status          = models.CharField(
+        max_length=16,
+        choices=CommandStatus.choices,
+        default=CommandStatus.PENDING,
+        db_index=True,
+        help_text="Current delivery status"
+    )
+    issued_by       = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='issued_commands',
+        help_text="Admin user who dispatched this command (null = system/policy)"
+    )
+    created_at      = models.DateTimeField(auto_now_add=True, db_index=True)
+    delivered_at    = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When the command was included in a message response"
+    )
+    acknowledged_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When the device confirmed execution"
+    )
+    expires_at      = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Command is discarded undelivered after this time (null = never)"
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Device Command"
+        verbose_name_plural = "Device Commands"
+
+    def __str__(self):
+        return f"{self.action} → {self.device.name} [{self.status}]"
+
+    @property
+    def is_expired(self):
+        from django.utils import timezone
+        return self.expires_at is not None and self.expires_at < timezone.now() and self.status == CommandStatus.PENDING

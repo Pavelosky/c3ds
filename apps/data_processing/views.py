@@ -18,8 +18,10 @@ from dateutil import parser as date_parser
 from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 
-from apps.device_management.models import Device, DeviceStatus
-from apps.anomaly_detection.models import AnomalyFlag, AnomalyType, AnomalySeverity, DeviceIPHistory
+from django.db.models import Q
+from apps.device_management.models import Device, DeviceStatus, AuditEventType
+from apps.anomaly_detection.models import AnomalyFlag, AnomalyType, AnomalySeverity, DeviceIPHistory, DeviceCommand, CommandStatus
+from apps.anomaly_detection.audit import log_audit_event
 
 
 # Create your views here.
@@ -358,12 +360,29 @@ class DeviceMessageView(APIView):
         if device.status in [DeviceStatus.PENDING, DeviceStatus.INACTIVE]:
             device.status = DeviceStatus.ACTIVE
             device.save()
-        
+
+        # Collect pending commands for this device and mark them as delivered
+        now = timezone.now()
+        pending_commands = list(
+            DeviceCommand.objects.filter(
+                device=device, status=CommandStatus.PENDING
+            ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+        )
+        commands_data = [
+            {'id': str(cmd.id), 'action': cmd.action, 'params': cmd.params}
+            for cmd in pending_commands
+        ]
+        if pending_commands:
+            DeviceCommand.objects.filter(
+                id__in=[cmd.id for cmd in pending_commands]
+            ).update(status=CommandStatus.DELIVERED, delivered_at=now)
+
         response_data = {
             'status': 'success',
             'saved': saved_successfully,
             'device_id': device.id,
-            'timestamp': timezone.now().isoformat()
+            'timestamp': now.isoformat(),
+            'commands': commands_data,
         }
 
         if saved_successfully:
@@ -513,3 +532,105 @@ class DeviceMessageListView(generics.ListAPIView):
             limit = 1000
 
         return queryset.order_by('-recieved_at')[:limit]
+
+
+class DeviceCommandAckView(APIView):
+    """
+    POST /api/v1/device/ack/
+
+    Device confirms execution of a command. Uses the same certificate-based
+    authentication as the message endpoint.
+
+    Body: { "command_id": "<uuid>", "status": "ok" | "error", "detail": "..." }
+    """
+    permission_classes = []  # Certificate-based auth
+
+    def post(self, request):
+        cert_header = request.headers.get('X-Device-Certificate')
+        signature_header = request.headers.get('X-Device-Signature')
+
+        if not cert_header or not signature_header:
+            return Response({'error': 'Missing required headers.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Reuse certificate validation logic
+        try:
+            cert_pem = base64.b64decode(cert_header)
+            device_cert = x509.load_pem_x509_certificate(cert_pem)
+        except Exception:
+            return Response({'error': 'Invalid certificate format.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with open(settings.CA_CERTIFICATE_PATH, 'rb') as f:
+                ca_cert = x509.load_pem_x509_certificate(f.read())
+            ca_cert.public_key().verify(
+                device_cert.signature,
+                device_cert.tbs_certificate_bytes,
+                padding.PKCS1v15(),
+                device_cert.signature_hash_algorithm,
+            )
+        except Exception:
+            return Response({'error': 'Certificate verification failed.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        now_utc = datetime.utcnow().replace(tzinfo=pytz.UTC)
+        if device_cert.not_valid_before.replace(tzinfo=pytz.UTC) > now_utc or \
+                device_cert.not_valid_after.replace(tzinfo=pytz.UTC) < now_utc:
+            return Response({'error': 'Certificate expired.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            common_name = device_cert.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value
+            device = Device.objects.get(id=common_name)
+        except (Device.DoesNotExist, Exception):
+            return Response({'error': 'Device not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if device.status == DeviceStatus.REVOKED:
+            return Response({'error': 'Device revoked.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # Verify request body signature
+        try:
+            body = request.body
+            pub_key = device_cert.public_key()
+            sig = base64.b64decode(signature_header)
+            if isinstance(pub_key, rsa.RSAPublicKey):
+                pub_key.verify(sig, body, padding.PKCS1v15(), hashes.SHA256())
+            elif isinstance(pub_key, ec.EllipticCurvePublicKey):
+                pub_key.verify(sig, body, ec.ECDSA(hashes.SHA256()))
+            else:
+                return Response({'error': 'Unsupported certificate algorithm.'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response({'error': 'Invalid signature.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            return Response({'error': 'Invalid JSON body.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        command_id = payload.get('command_id')
+        ack_status = payload.get('status', 'ok')
+        detail = payload.get('detail', '')
+
+        if not command_id:
+            return Response({'error': 'command_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            command = DeviceCommand.objects.get(id=command_id, device=device)
+        except DeviceCommand.DoesNotExist:
+            return Response({'error': 'Command not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        command.status = CommandStatus.ACKNOWLEDGED
+        command.acknowledged_at = timezone.now()
+        command.save(update_fields=['status', 'acknowledged_at'])
+
+        log_audit_event(
+            device=device,
+            event_type=AuditEventType.COMMAND_ACKNOWLEDGED,
+            description=f"Device acknowledged command {command.action} (status: {ack_status}).",
+            triggered_by=None,
+            metadata={
+                'command_id': str(command.id),
+                'action': command.action,
+                'ack_status': ack_status,
+                'detail': detail,
+            },
+        )
+
+        return Response({'status': 'ok', 'command_id': str(command.id)}, status=status.HTTP_200_OK)
