@@ -38,4 +38,19 @@ def run_anomaly_analysis(self):
             results[name] = f'error: {exc}'
             logger.error("Anomaly check '%s' failed: %s", name, exc, exc_info=True)
 
+    # Evaluate configurable policies for all active devices.
+    # This covers CERT_EXPIRY_SOON and NO_MESSAGES_EVER (which are not triggered
+    # per-message) and ensures silent devices still get policy-evaluated.
+    try:
+        from apps.device_management.models import Device, DeviceStatus
+        from .detection import evaluate_policies_for_device
+        policy_devices = Device.objects.filter(status=DeviceStatus.ACTIVE)
+        for device in policy_devices:
+            evaluate_policies_for_device(device, message=None)
+        results['policy_evaluation'] = f'ok ({policy_devices.count()} devices)'
+        logger.info("Policy evaluation completed for %d active devices.", policy_devices.count())
+    except Exception as exc:
+        results['policy_evaluation'] = f'error: {exc}'
+        logger.error("Policy evaluation failed: %s", exc, exc_info=True)
+
     return results

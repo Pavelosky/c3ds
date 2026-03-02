@@ -361,6 +361,13 @@ class DeviceMessageView(APIView):
             device.status = DeviceStatus.ACTIVE
             device.save()
 
+        # Evaluate configurable detection policies for this device
+        try:
+            from apps.anomaly_detection.detection import evaluate_policies_for_device
+            evaluate_policies_for_device(device, message=message)
+        except Exception:
+            pass  # Policy evaluation failures must not disrupt message delivery
+
         # Collect pending commands for this device and mark them as delivered
         now = timezone.now()
         pending_commands = list(

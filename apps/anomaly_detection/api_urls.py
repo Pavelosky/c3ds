@@ -20,6 +20,9 @@ from .api_views import (
     SystemHealthView,
     DeviceCommandView,
     CommandQueueView,
+    DetectionPolicyView,
+    DetectionPolicyDetailView,
+    PolicyTriggerLogView,
 )
 
 router = DefaultRouter()
@@ -40,4 +43,7 @@ urlpatterns = [
     path('commands/', CommandQueueView.as_view(), name='command-queue'),
     path('messages/rate/', MessageRateView.as_view(), name='message-rate'),
     path('system/health/', SystemHealthView.as_view(), name='system-health'),
+    path('policies/', DetectionPolicyView.as_view(), name='policy-list'),
+    path('policies/<uuid:policy_id>/', DetectionPolicyDetailView.as_view(), name='policy-detail'),
+    path('policies/<uuid:policy_id>/triggers/', PolicyTriggerLogView.as_view(), name='policy-triggers'),
 ]

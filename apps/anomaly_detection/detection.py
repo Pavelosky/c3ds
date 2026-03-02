@@ -6,13 +6,13 @@ AnomalyFlag records where warranted. All rules are deterministic and threshold-
 based — no ML is used.
 
 Thresholds are defined as module-level constants so they can be overridden in
-tests or easily tuned in the future.  
+tests or easily tuned in the future.
 """
 from django.utils import timezone
-from django.db.models import Count, Avg, StdDev
+from django.db.models import Count, Avg, StdDev, Q
 from datetime import timedelta
 
-from .models import AnomalyFlag, AnomalyType, AnomalySeverity
+from .models import AnomalyFlag, AnomalyType, AnomalySeverity, DetectionPolicy, PolicyTriggerLog, PolicyConditionType, PolicyActionType
 
 
 # ####### Thresholds ########### 
@@ -186,3 +186,204 @@ def check_silent_devices():
                 description=f"Anomaly flag raised: Silent Device (flag #{flag.id}).",
                 metadata={'flag_id': flag.id, 'flag_type': flag.flag_type},
             )
+
+
+# ============================================================================
+# Policy Engine
+# ============================================================================
+
+def _already_triggered_in_window(policy, device):
+    """
+    Return True if this policy already fired for this device within its cooldown window.
+
+    CERT_EXPIRY_SOON and NO_MESSAGES_EVER use a fixed 24-hour cooldown because
+    they have no meaningful window_minutes (the condition is time-since-event, not
+    a rolling message-count window).
+    """
+    if policy.condition_type in (
+        PolicyConditionType.CERT_EXPIRY_SOON,
+        PolicyConditionType.NO_MESSAGES_EVER,
+    ):
+        cooldown = timedelta(hours=24)
+    else:
+        cooldown = timedelta(minutes=policy.window_minutes)
+
+    return PolicyTriggerLog.objects.filter(
+        policy=policy,
+        device=device,
+        triggered_at__gte=timezone.now() - cooldown,
+    ).exists()
+
+
+def _condition_met(policy, device, message):
+    """
+    Evaluate policy.condition_type against the device's current state.
+
+    `message` is the freshly-saved DeviceMessage that triggered this evaluation,
+    or None when called from the Celery periodic task.
+    """
+    from apps.data_processing.models import DeviceMessage
+
+    now = timezone.now()
+    ct = policy.condition_type
+
+    if ct == PolicyConditionType.MESSAGE_RATE_HIGH:
+        window_start = now - timedelta(minutes=policy.window_minutes)
+        count = DeviceMessage.objects.filter(
+            device=device, recieved_at__gte=window_start
+        ).count()
+        return count > policy.threshold_value
+
+    if ct == PolicyConditionType.MESSAGE_RATE_LOW:
+        window_start = now - timedelta(minutes=policy.window_minutes)
+        count = DeviceMessage.objects.filter(
+            device=device, recieved_at__gte=window_start
+        ).count()
+        return count < policy.threshold_value
+
+    if ct == PolicyConditionType.CERT_EXPIRY_SOON:
+        if not device.certificate_expiry:
+            return False
+        days_remaining = (device.certificate_expiry - now).days
+        return days_remaining < policy.threshold_value
+
+    if ct == PolicyConditionType.NO_MESSAGES_EVER:
+        days_since_registration = (now - device.created_at).days
+        if days_since_registration < policy.threshold_value:
+            return False
+        return not DeviceMessage.objects.filter(device=device).exists()
+
+    if ct == PolicyConditionType.MESSAGE_TYPE_RATIO:
+        window_start = now - timedelta(minutes=policy.window_minutes)
+        total = DeviceMessage.objects.filter(
+            device=device, recieved_at__gte=window_start
+        ).count()
+        if total == 0:
+            return False
+        detection_count = DeviceMessage.objects.filter(
+            device=device, recieved_at__gte=window_start,
+            message_type='detection',
+        ).count()
+        ratio = (detection_count / total) * 100
+        return ratio > policy.threshold_value
+
+    return False
+
+
+def _execute_action(policy, device, message):
+    """
+    Execute policy.action_type and return a detail dict for the trigger log.
+    """
+    from apps.anomaly_detection.audit import log_audit_event
+    from apps.device_management.models import AuditEventType, DeviceStatus
+
+    detail = {
+        'policy_id': str(policy.id),
+        'condition_type': policy.condition_type,
+        'threshold_value': policy.threshold_value,
+        'action_type': policy.action_type,
+    }
+
+    flag = None
+
+    if policy.action_type in (PolicyActionType.FLAG_ANOMALY, PolicyActionType.CREATE_INCIDENT):
+        flag = AnomalyFlag.objects.create(
+            device=device,
+            flag_type=AnomalyType.POLICY_TRIGGERED,
+            severity=policy.action_severity,
+            explanation=(
+                f"Policy '{policy.name}' triggered: condition {policy.condition_type} "
+                f"met (threshold {policy.threshold_value}, window {policy.window_minutes} min). "
+                f"Action: {policy.action_type}."
+            ),
+            detail={
+                'policy_id': str(policy.id),
+                'policy_name': policy.name,
+                'condition_type': policy.condition_type,
+                'threshold_value': policy.threshold_value,
+                'window_minutes': policy.window_minutes,
+            },
+        )
+        log_audit_event(
+            device=device,
+            event_type=AuditEventType.ANOMALY_RAISED,
+            description=f"Policy '{policy.name}' raised anomaly flag #{flag.id}.",
+            metadata={'flag_id': str(flag.id), 'policy_id': str(policy.id)},
+        )
+        detail['flag_id'] = str(flag.id)
+
+    if policy.action_type == PolicyActionType.CREATE_INCIDENT:
+        from .models import Incident
+        incident = Incident.objects.create(
+            title=f"Auto-incident: {policy.name}",
+            description=(
+                f"Automatically created by policy '{policy.name}' "
+                f"(condition: {policy.condition_type}, threshold: {policy.threshold_value})."
+            ),
+            severity=policy.action_severity,
+        )
+        if flag:
+            incident.linked_flags.add(flag)
+        detail['incident_id'] = str(incident.id)
+
+    if policy.action_type == PolicyActionType.QUEUE_COMMAND:
+        from .models import DeviceCommand
+        cmd = DeviceCommand.objects.create(
+            device=device,
+            action=policy.action_command,
+            params=policy.action_command_params,
+            issued_by=None,   # system-issued, not a named admin
+        )
+        detail['command_id'] = str(cmd.id)
+
+    if policy.action_type == PolicyActionType.CHANGE_STATUS:
+        if policy.action_device_status:
+            old_status = device.status
+            device.status = policy.action_device_status
+            device.save(update_fields=['status'])
+            log_audit_event(
+                device=device,
+                event_type=AuditEventType.STATUS_CHANGED,
+                description=(
+                    f"Policy '{policy.name}' changed device status "
+                    f"from {old_status} to {policy.action_device_status}."
+                ),
+                metadata={
+                    'old_status': old_status,
+                    'new_status': policy.action_device_status,
+                    'policy_id': str(policy.id),
+                },
+            )
+            detail['old_status'] = old_status
+            detail['new_status'] = policy.action_device_status
+
+    return detail
+
+
+def evaluate_policies_for_device(device, message=None):
+    """
+    Evaluate all active DetectionPolicy rules that apply to this device.
+
+    Called after every valid inbound message (per-message conditions: RATE, RATIO)
+    and from the Celery periodic task (covers CERT_EXPIRY_SOON, NO_MESSAGES_EVER,
+    and devices that have gone quiet and no longer trigger per-message evaluation).
+
+    Reference: NIST SP 800-94 §4 — Policy-based intrusion detection.
+    """
+    policies = DetectionPolicy.objects.filter(is_active=True).filter(
+        Q(applies_to_device=device)
+        | Q(applies_to_device__isnull=True, applies_to_type=device.device_type)
+        | Q(applies_to_device__isnull=True, applies_to_type__isnull=True)
+    ).select_related('applies_to_type', 'applies_to_device')
+
+    for policy in policies:
+        if _already_triggered_in_window(policy, device):
+            continue
+        if not _condition_met(policy, device, message):
+            continue
+        detail = _execute_action(policy, device, message)
+        PolicyTriggerLog.objects.create(
+            policy=policy,
+            device=device,
+            detail=detail,
+        )

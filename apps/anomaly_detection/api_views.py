@@ -32,7 +32,11 @@ from apps.device_management.models import Device, DeviceStatus, DeviceAuditEntry
 from apps.data_processing.models import DeviceMessage
 from apps.anomaly_detection.audit import log_audit_event
 
-from .models import AnomalyFlag, AnomalyType, Incident, IncidentNote, DeviceCommand, CommandStatus
+from .models import (
+    AnomalyFlag, AnomalyType, Incident, IncidentNote,
+    DeviceCommand, CommandStatus,
+    DetectionPolicy, PolicyTriggerLog,
+)
 from .serializers import (
     AnomalyFlagSerializer,
     AnomalySummarySerializer,
@@ -41,6 +45,8 @@ from .serializers import (
     IncidentNoteSerializer,
     DeviceAuditEntrySerializer,
     DeviceCommandSerializer,
+    DetectionPolicySerializer,
+    PolicyTriggerLogSerializer,
 )
 
 
@@ -839,4 +845,105 @@ class CommandQueueView(APIView):
             qs = qs.filter(device__id=device_id)
 
         serializer = DeviceCommandSerializer(qs, many=True)
+        return Response(serializer.data)
+
+
+class DetectionPolicyView(APIView):
+    """
+    GET  /api/v1/admin/policies/  — list all detection policies
+    POST /api/v1/admin/policies/  — create a new policy
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        qs = DetectionPolicy.objects.select_related(
+            'applies_to_type', 'applies_to_device', 'created_by'
+        ).all()
+        serializer = DetectionPolicySerializer(qs, many=True, context={'request': request})
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = DetectionPolicySerializer(data=request.data, context={'request': request})
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        policy = serializer.save()
+        return Response(
+            DetectionPolicySerializer(policy, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class DetectionPolicyDetailView(APIView):
+    """
+    GET    /api/v1/admin/policies/{policy_id}/  — retrieve
+    PATCH  /api/v1/admin/policies/{policy_id}/  — update (e.g. toggle is_active)
+    DELETE /api/v1/admin/policies/{policy_id}/  — delete
+    """
+    permission_classes = [IsAdminUser]
+
+    def _get_policy(self, policy_id):
+        try:
+            return DetectionPolicy.objects.get(pk=policy_id)
+        except DetectionPolicy.DoesNotExist:
+            return None
+
+    def get(self, request, policy_id):
+        policy = self._get_policy(policy_id)
+        if policy is None:
+            return Response({'error': 'Policy not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = DetectionPolicySerializer(policy, context={'request': request})
+        return Response(serializer.data)
+
+    def patch(self, request, policy_id):
+        policy = self._get_policy(policy_id)
+        if policy is None:
+            return Response({'error': 'Policy not found.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = DetectionPolicySerializer(
+            policy, data=request.data, partial=True, context={'request': request}
+        )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.save()
+        return Response(serializer.data)
+
+    def delete(self, request, policy_id):
+        policy = self._get_policy(policy_id)
+        if policy is None:
+            return Response({'error': 'Policy not found.'}, status=status.HTTP_404_NOT_FOUND)
+        # Warn if the policy fired recently but allow deletion with ?confirm=1
+        recent = PolicyTriggerLog.objects.filter(
+            policy=policy,
+            triggered_at__gte=timezone.now() - timedelta(hours=24),
+        ).count()
+        if recent and not request.query_params.get('confirm'):
+            return Response(
+                {
+                    'error': f'Policy fired {recent} time(s) in the last 24 hours. '
+                             'Add ?confirm=1 to force delete.',
+                    'recent_triggers': recent,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        policy.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PolicyTriggerLogView(APIView):
+    """
+    GET /api/v1/admin/policies/{policy_id}/triggers/
+
+    Returns the trigger log for a single policy, most recent first.
+    Optional query param: limit (default 50, max 200)
+    """
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, policy_id):
+        try:
+            policy = DetectionPolicy.objects.get(pk=policy_id)
+        except DetectionPolicy.DoesNotExist:
+            return Response({'error': 'Policy not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        limit = min(int(request.query_params.get('limit', 50)), 200)
+        qs = PolicyTriggerLog.objects.filter(policy=policy).select_related('device')[:limit]
+        serializer = PolicyTriggerLogSerializer(qs, many=True)
         return Response(serializer.data)

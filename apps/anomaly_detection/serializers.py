@@ -4,7 +4,7 @@ Serializers for anomaly detection and incident management API endpoints.
 from rest_framework import serializers
 from django.contrib.auth.models import User
 
-from .models import AnomalyFlag, Incident, IncidentNote, DeviceCommand, CommandAction
+from .models import AnomalyFlag, Incident, IncidentNote, DeviceCommand, CommandAction, DetectionPolicy, PolicyTriggerLog
 from apps.device_management.models import DeviceAuditEntry
 from apps.data_processing.models import DeviceMessage
 
@@ -156,3 +156,46 @@ class DeviceCommandSerializer(serializers.ModelSerializer):
             'id', 'status', 'device_name', 'issued_by', 'issued_by_username',
             'is_expired', 'created_at', 'delivered_at', 'acknowledged_at',
         ]
+
+
+class PolicyTriggerLogSerializer(serializers.ModelSerializer):
+    policy_name = serializers.CharField(source='policy.name', read_only=True)
+    device_name = serializers.CharField(source='device.name', read_only=True)
+
+    class Meta:
+        model = PolicyTriggerLog
+        fields = ['id', 'policy', 'policy_name', 'device', 'device_name', 'triggered_at', 'detail']
+        read_only_fields = fields
+
+
+class DetectionPolicySerializer(serializers.ModelSerializer):
+    applies_to_type_name   = serializers.CharField(source='applies_to_type.name',   read_only=True, default=None)
+    applies_to_device_name = serializers.CharField(source='applies_to_device.name', read_only=True, default=None)
+    created_by_username    = serializers.CharField(source='created_by.username',     read_only=True, default=None)
+    trigger_count          = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DetectionPolicy
+        fields = [
+            'id', 'name', 'description', 'is_active',
+            'applies_to_type', 'applies_to_type_name',
+            'applies_to_device', 'applies_to_device_name',
+            'condition_type', 'threshold_value', 'window_minutes',
+            'action_type', 'action_severity',
+            'action_command', 'action_command_params', 'action_device_status',
+            'created_by', 'created_by_username',
+            'created_at', 'updated_at',
+            'trigger_count',
+        ]
+        read_only_fields = [
+            'id', 'created_by', 'created_by_username',
+            'applies_to_type_name', 'applies_to_device_name',
+            'created_at', 'updated_at', 'trigger_count',
+        ]
+
+    def get_trigger_count(self, obj):
+        return obj.trigger_logs.count()
+
+    def create(self, validated_data):
+        validated_data['created_by'] = self.context['request'].user
+        return super().create(validated_data)

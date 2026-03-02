@@ -9,6 +9,7 @@ class AnomalyType(models.TextChoices):
     SILENT_DEVICE = 'SILENT_DEVICE', 'Silent Device'
     AUTH_UNKNOWN_IP = 'AUTH_UNKNOWN_IP', 'Authentication from Unknown IP'
     AUTH_MALFORMED_MESSAGE = 'AUTH_MALFORMED_MESSAGE', 'Malformed Message Received'
+    POLICY_TRIGGERED = 'POLICY_TRIGGERED', 'Policy Rule Triggered'
 
 
 class AnomalySeverity(models.TextChoices):
@@ -350,3 +351,150 @@ class DeviceCommand(models.Model):
     def is_expired(self):
         from django.utils import timezone
         return self.expires_at is not None and self.expires_at < timezone.now() and self.status == CommandStatus.PENDING
+
+
+# ============================================================================
+# Policy Engine
+# ============================================================================
+
+class PolicyConditionType(models.TextChoices):
+    MESSAGE_RATE_HIGH  = 'MESSAGE_RATE_HIGH',  'Message rate above threshold'
+    MESSAGE_RATE_LOW   = 'MESSAGE_RATE_LOW',   'Message rate below threshold (silence)'
+    CERT_EXPIRY_SOON   = 'CERT_EXPIRY_SOON',   'Certificate expiring within N days'
+    NO_MESSAGES_EVER   = 'NO_MESSAGES_EVER',   'Device registered but never sent a message'
+    MESSAGE_TYPE_RATIO = 'MESSAGE_TYPE_RATIO', 'Detection-type message ratio above threshold'
+
+
+class PolicyActionType(models.TextChoices):
+    FLAG_ANOMALY    = 'FLAG_ANOMALY',    'Raise anomaly flag'
+    QUEUE_COMMAND   = 'QUEUE_COMMAND',   'Queue device command'
+    CHANGE_STATUS   = 'CHANGE_STATUS',   'Change device status'
+    CREATE_INCIDENT = 'CREATE_INCIDENT', 'Open incident and link flag'
+
+
+class DetectionPolicy(models.Model):
+    """
+    A configurable detection rule that pairs a condition with an action.
+
+    When the condition is met for a device (evaluated per-message and on the
+    Celery periodic task), the action is executed and a PolicyTriggerLog entry
+    is created for audit and deduplication.
+
+    Design reference:
+    - Rule-based policy engines (NIST SP 800-94 §4)
+    - Condition → Action pattern (similar to IFTTT / event-driven rules)
+    """
+    id          = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name        = models.CharField(max_length=128, help_text="Short descriptive name for this policy")
+    description = models.TextField(blank=True, help_text="Optional longer explanation of what this policy does")
+    is_active   = models.BooleanField(default=True, db_index=True,
+                                      help_text="Inactive policies are never evaluated")
+
+    # Scope — null means 'all devices of that type' / 'all device types'
+    applies_to_type   = models.ForeignKey(
+        'device_management.DeviceType',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='policies',
+        help_text="Limit to devices of this type (null = all types)"
+    )
+    applies_to_device = models.ForeignKey(
+        'device_management.Device',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='policies',
+        help_text="Limit to a single device (takes precedence over applies_to_type)"
+    )
+
+    # Condition
+    condition_type  = models.CharField(max_length=32, choices=PolicyConditionType.choices,
+                                       help_text="What to measure")
+    threshold_value = models.FloatField(
+        help_text=(
+            "Numeric threshold: message count (RATE), days (CERT_EXPIRY_SOON / NO_MESSAGES_EVER),"
+            " or percentage 0-100 (MESSAGE_TYPE_RATIO)"
+        )
+    )
+    window_minutes  = models.IntegerField(
+        default=60,
+        help_text="Evaluation window in minutes (ignored for CERT_EXPIRY_SOON and NO_MESSAGES_EVER)"
+    )
+
+    # Action
+    action_type           = models.CharField(max_length=32, choices=PolicyActionType.choices,
+                                             help_text="What to do when condition is met")
+    action_severity       = models.CharField(
+        max_length=16,
+        choices=AnomalySeverity.choices,
+        default=AnomalySeverity.MEDIUM,
+        help_text="Severity for FLAG_ANOMALY / CREATE_INCIDENT actions"
+    )
+    action_command        = models.CharField(
+        max_length=32,
+        choices=CommandAction.choices,
+        null=True, blank=True,
+        help_text="Command to queue for QUEUE_COMMAND action"
+    )
+    action_command_params = models.JSONField(
+        default=dict, blank=True,
+        help_text="Params for the queued command (e.g. {'seconds': 60})"
+    )
+    action_device_status  = models.CharField(
+        max_length=16, null=True, blank=True,
+        help_text="Target device status for CHANGE_STATUS action"
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='created_policies',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Detection Policy"
+        verbose_name_plural = "Detection Policies"
+
+    def __str__(self):
+        scope = (
+            self.applies_to_device.name if self.applies_to_device
+            else (self.applies_to_type.name if self.applies_to_type else 'all devices')
+        )
+        return f"{self.name} [{self.condition_type} → {self.action_type}] ({scope})"
+
+
+class PolicyTriggerLog(models.Model):
+    """
+    Records every time a DetectionPolicy fires for a device.
+
+    Used for:
+    1. Deduplication — prevent the same policy firing repeatedly within its window.
+    2. Audit — provide a complete history of policy actions.
+    """
+    id           = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    policy       = models.ForeignKey(
+        DetectionPolicy,
+        on_delete=models.CASCADE,
+        related_name='trigger_logs',
+    )
+    device       = models.ForeignKey(
+        'device_management.Device',
+        on_delete=models.CASCADE,
+        related_name='policy_triggers',
+    )
+    triggered_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    detail       = models.JSONField(
+        default=dict,
+        help_text="Measured value, threshold, and action taken at trigger time"
+    )
+
+    class Meta:
+        ordering = ['-triggered_at']
+        verbose_name = "Policy Trigger Log"
+        verbose_name_plural = "Policy Trigger Logs"
+
+    def __str__(self):
+        return f"{self.policy.name} → {self.device.name} ({self.triggered_at:%Y-%m-%d %H:%M})"
