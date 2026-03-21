@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Device, DeviceStatus, DeviceType
+from .models import Device, DeviceAuditEntry, DeviceStatus, DeviceType
 from django.contrib import messages
 from django.http import HttpResponse
 from .utils import generate_device_certificate
@@ -94,3 +94,10 @@ class DeviceAdmin(admin.ModelAdmin):
     readonly_fields = ('id', 'created_at', 'updated_at', 'created_by')
     actions = [generate_certificate_action]
 
+
+@admin.register(DeviceAuditEntry)
+class DeviceAuditEntryAdmin(admin.ModelAdmin):
+    list_display = ('device', 'event_type', 'triggered_by', 'triggered_at')
+    list_filter = ('event_type', 'triggered_at')
+    search_fields = ('device__name', 'description')
+    readonly_fields = ('device', 'event_type', 'description', 'triggered_by', 'triggered_at', 'metadata')

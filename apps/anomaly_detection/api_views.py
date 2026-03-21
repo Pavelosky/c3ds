@@ -585,6 +585,7 @@ class AdminDeviceListView(APIView):
                 'name': device.name,
                 'status': device.status,
                 'device_type': device.device_type.name if device.device_type else None,
+                'device_type_id': device.device_type.id if device.device_type else None,
                 'latitude': str(device.latitude) if device.latitude else None,
                 'longitude': str(device.longitude) if device.longitude else None,
                 'last_message': last_msg.recieved_at.isoformat() if last_msg else None,
