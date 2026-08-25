@@ -1,6 +1,6 @@
 # C3DS — Civilian Distributed Drone Detection System
 
-*Built as a final-year BSc Computer Science project for CM3040 Physical Computing and the Internet of Things; the brief called for a dashboard to onboard heterogeneous IoT devices under user-defined security policies, monitor their behaviour, and raise alerts or trigger actions.*
+*Built as a final-year BSc Computer Science project for CM3070; the requirements for the project were for a dashboard to onboard heterogeneous IoT devices under customizable security policies, monitor their behaviour, and raise alerts or trigger actions.*
 
 C3DS is a citizen-operated sensor network for spotting and tracking small drones. Volunteers run low-cost IoT sensors (RF detectors, ultrasonic rangefinders, and similar) that authenticate with per-device certificates and report detections to a central server. The server verifies every message cryptographically, runs a rule-based anomaly/policy engine over the incoming data, and surfaces everything through a public live map and an admin console for operators.
 
